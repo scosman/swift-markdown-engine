@@ -3,7 +3,7 @@
 [![Swift 5.9](https://img.shields.io/badge/Swift-5.9+-F05138?logo=swift&logoColor=white)](https://swift.org)
 [![Platforms macOS 14+](https://img.shields.io/badge/Platforms-macOS%2014+-lightgrey)](https://developer.apple.com/macos/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/luca-chen198/swift-markdown-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/luca-chen198/swift-markdown-engine/actions/workflows/ci.yml)
+[![CI](https://github.com/nodes-app/swift-markdown-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/nodes-app/swift-markdown-engine/actions/workflows/ci.yml)
 
 A native AppKit Markdown editor for macOS, built on TextKit 2 and bridged to
 SwiftUI. Live styling, wiki-link support, fenced code blocks with syntax
@@ -50,7 +50,7 @@ Add MarkdownEngine to your `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/luca-chen198/swift-markdown-engine", from: "0.1.0")
+    .package(url: "https://github.com/nodes-app/swift-markdown-engine", from: "0.1.0")
 ],
 targets: [
     .target(
@@ -158,7 +158,7 @@ swift package generate-documentation --target MarkdownEngine
 In Xcode: **Product → Build Documentation** (`⇧⌃⌘D`).
 
 Once the package is hosted on Swift Package Index, the docs will live at
-`https://swiftpackageindex.com/luca-chen198/swift-markdown-engine/documentation`.
+`https://swiftpackageindex.com/nodes-app/swift-markdown-engine/documentation`.
 
 ## Requirements
 
