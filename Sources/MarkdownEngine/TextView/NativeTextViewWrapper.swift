@@ -104,7 +104,12 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets(top: 55.4, left: 0, bottom: 0, right: 0)
+        scrollView.contentInsets = NSEdgeInsets(
+            top: configuration.contentInsets.top,
+            left: configuration.contentInsets.leading,
+            bottom: configuration.contentInsets.bottom,
+            right: configuration.contentInsets.trailing
+        )
 
         // Let NSTextView auto-initialize its own TextKit 2 stack via init(frame:).
         let textView = NativeTextView(frame: .zero)

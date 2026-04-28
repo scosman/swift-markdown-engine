@@ -39,6 +39,7 @@ public struct MarkdownEditorConfiguration: Sendable {
     public var paragraph: ParagraphStyle
     public var overscroll: OverscrollPolicy
     public var dragSelection: DragSelectionPolicy
+    public var contentInsets: ContentInsets
 
     public init(
         theme: MarkdownEditorTheme = .default,
@@ -55,7 +56,8 @@ public struct MarkdownEditorConfiguration: Sendable {
         link: LinkStyle = .default,
         paragraph: ParagraphStyle = .default,
         overscroll: OverscrollPolicy = .default,
-        dragSelection: DragSelectionPolicy = .default
+        dragSelection: DragSelectionPolicy = .default,
+        contentInsets: ContentInsets = .default
     ) {
         self.theme = theme
         self.services = services
@@ -72,6 +74,7 @@ public struct MarkdownEditorConfiguration: Sendable {
         self.paragraph = paragraph
         self.overscroll = overscroll
         self.dragSelection = dragSelection
+        self.contentInsets = contentInsets
     }
 
     public static let `default` = MarkdownEditorConfiguration()
@@ -410,4 +413,40 @@ public struct DragSelectionPolicy: Sendable {
     }
 
     public static let `default` = DragSelectionPolicy()
+}
+
+// MARK: - Content insets
+
+/// Inset (in points) applied to the editor's enclosing scroll view's content
+/// area on each edge.
+///
+/// Use this when the editor is hosted inside a layout that needs reserved
+/// space at one of the edges — for example, a translucent toolbar or header
+/// bar that the document should scroll *underneath*. The default is zero on
+/// every edge so the editor fills its container exactly; embedders that
+/// want padding opt in explicitly.
+public struct ContentInsets: Sendable {
+    /// Top inset in points. Common use: reserving space for a translucent
+    /// title / toolbar bar.
+    public var top: CGFloat
+    /// Leading (left in NSEdgeInsets) inset in points.
+    public var leading: CGFloat
+    /// Trailing (right in NSEdgeInsets) inset in points.
+    public var trailing: CGFloat
+    /// Bottom inset in points.
+    public var bottom: CGFloat
+
+    public init(
+        top: CGFloat = 0,
+        leading: CGFloat = 0,
+        trailing: CGFloat = 0,
+        bottom: CGFloat = 0
+    ) {
+        self.top = top
+        self.leading = leading
+        self.trailing = trailing
+        self.bottom = bottom
+    }
+
+    public static let `default` = ContentInsets()
 }

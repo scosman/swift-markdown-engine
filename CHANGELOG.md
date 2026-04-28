@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Breaking**: The editor's enclosing scroll view no longer applies a
+  hard-coded `top: 55.4` content inset. The default is now `0` on every
+  edge, matching the most common embedding case where the editor fills
+  its container exactly. Embedders that previously relied on the engine
+  reserving header space (e.g. for a translucent toolbar) must opt in
+  explicitly:
+
+  ```swift
+  var config = MarkdownEditorConfiguration.default
+  config.contentInsets = ContentInsets(top: 55.4)
+  ```
+
+### Added
+- `ContentInsets` struct exposing `top` / `leading` / `trailing` / `bottom`
+  inset knobs for the editor's enclosing scroll view, configurable via
+  `MarkdownEditorConfiguration.contentInsets`.
+
 ### Fixed
 - `NativeTextViewWrapper` now applies its initial styling pass even when
   the bound text starts at its final value (e.g. supplied as a SwiftUI
