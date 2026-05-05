@@ -173,15 +173,15 @@ extension NativeTextViewWrapper.Coordinator {
         guard let tv = textView else { return }
         let range = tv.selectedRange()
 
-        if range.length == 0 {
-            insertEmptyMarkers("**")
-            return
-        }
-
         if let token = enclosingBoldToken(for: range, in: tv.string) {
             // Toggle off: bold → plain, boldItalic → italic.
             let (left, right) = token.kind == .boldItalic ? ("*", "*") : ("", "")
             unwrapToken(token, leftReplacement: left, rightReplacement: right)
+            return
+        }
+
+        if range.length == 0 {
+            insertEmptyMarkers("**")
             return
         }
 
@@ -192,15 +192,15 @@ extension NativeTextViewWrapper.Coordinator {
         guard let tv = textView else { return }
         let range = tv.selectedRange()
 
-        if range.length == 0 {
-            insertEmptyMarkers("*")
-            return
-        }
-
         if let token = enclosingItalicToken(for: range, in: tv.string) {
             // Toggle off: italic → plain, boldItalic → bold.
             let (left, right) = token.kind == .boldItalic ? ("**", "**") : ("", "")
             unwrapToken(token, leftReplacement: left, rightReplacement: right)
+            return
+        }
+
+        if range.length == 0 {
+            insertEmptyMarkers("*")
             return
         }
 
