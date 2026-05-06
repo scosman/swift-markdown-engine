@@ -34,10 +34,54 @@ struct MarkdownLists {
     static let numberRegex = try! NSRegularExpression(pattern: #"^\s*(\d+)\.$"#)
     static let leadingWhitespaceRegex = try! NSRegularExpression(pattern: #"^\s*"#)
 
+    /// Matches `<tabs>- ` at the start of a line — the standard-Markdown bullet
+    /// form. Used by `normalizeBulletMarkers(_:)` to convert pasted/loaded
+    /// dash bullets into the engine's canonical `\t• ` form.
+    static let pasteableDashBulletRegex = try! NSRegularExpression(
+        pattern: #"^([\t]*)- "#,
+        options: [.anchorsMatchLines]
+    )
+
     static func indentLevel(from leadingWhitespace: String) -> Int {
         let tabCount = leadingWhitespace.filter { $0 == "\t" }.count
         let spaceCount = leadingWhitespace.filter { $0 == " " }.count
         return tabCount + (spaceCount / 2)
+    }
+
+    // MARK: - Storage Normalization
+
+    /// Rewrite standard-Markdown dash bullets (`- foo`) to the engine's
+    /// canonical bullet form (`\t• foo`) so pasted or programmatically loaded
+    /// markdown renders with the same hanging indent and bullet glyph as
+    /// bullets the user types directly. The typed-input path already
+    /// rewrites `-` → `\t• ` on space-after-dash; this closes the gap for
+    /// every other ingestion path. Code blocks are left untouched.
+    static func normalizeBulletMarkers(_ text: String) -> String {
+        guard !text.isEmpty else { return text }
+        let nsText = text as NSString
+        let fullRange = NSRange(location: 0, length: nsText.length)
+        let matches = pasteableDashBulletRegex.matches(in: text, options: [], range: fullRange)
+        guard !matches.isEmpty else { return text }
+        // Parse code-block tokens once so per-match code-block lookups stay O(tokens),
+        // not O(parse) — pasting a huge document with many dash lines would
+        // otherwise tokenize once per match.
+        let codeTokens = text.contains("`")
+            ? MarkdownTokenizer.parseTokens(in: text).filter { $0.kind == .codeBlock || $0.kind == .inlineCode }
+            : []
+        let mutable = NSMutableString(string: text)
+        // Walk in reverse so untouched offsets stay valid as we mutate.
+        for match in matches.reversed() {
+            let lineStart = match.range.location
+            if !codeTokens.isEmpty,
+               MarkdownDetection.isInsideCodeBlock(location: lineStart, codeTokens: codeTokens) {
+                continue
+            }
+            let wsLen = match.range(at: 1).length
+            // Replace just the "- " (length 2) after the leading tabs.
+            let dashRange = NSRange(location: lineStart + wsLen, length: 2)
+            mutable.replaceCharacters(in: dashRange, with: "\t• ")
+        }
+        return mutable as String
     }
 
     // MARK: - Paragraph Attributes for List Styling

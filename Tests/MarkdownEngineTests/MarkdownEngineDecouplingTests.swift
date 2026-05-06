@@ -90,6 +90,38 @@ struct MarkdownEngineDecouplingTests {
         #expect(bus.findClearHighlights == nil)
     }
 
+    // MARK: Bullet normalization
+
+    @Test func dashBulletNormalizesToCanonicalBullet() {
+        let input = "- 你好\nplain line\n- second"
+        let output = MarkdownLists.normalizeBulletMarkers(input)
+        #expect(output == "\t• 你好\nplain line\n\t• second")
+    }
+
+    @Test func tabIndentedDashBulletKeepsItsDepth() {
+        let input = "- top\n\t- nested\n\t\t- deeper"
+        let output = MarkdownLists.normalizeBulletMarkers(input)
+        #expect(output == "\t• top\n\t\t• nested\n\t\t\t• deeper")
+    }
+
+    @Test func horizontalRuleIsNotNormalizedAsBullet() {
+        let input = "before\n---\nafter"
+        let output = MarkdownLists.normalizeBulletMarkers(input)
+        #expect(output == input)
+    }
+
+    @Test func dashInsideFencedCodeBlockIsLeftAlone() {
+        let input = "```\n- not a bullet\n```\n- real bullet"
+        let output = MarkdownLists.normalizeBulletMarkers(input)
+        #expect(output == "```\n- not a bullet\n```\n\t• real bullet")
+    }
+
+    @Test func textWithoutDashBulletsIsReturnedUntouched() {
+        let input = "no bullets here\nstill nothing"
+        let output = MarkdownLists.normalizeBulletMarkers(input)
+        #expect(output == input)
+    }
+
     // MARK: Styler runs end-to-end with defaults
 
     @Test func stylerProducesAttributesWithDefaultServices() {

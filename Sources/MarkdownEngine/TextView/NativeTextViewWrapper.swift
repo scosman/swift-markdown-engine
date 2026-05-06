@@ -135,7 +135,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = isEditable
         textView.isRichText = true
-        let initialState = WikiLinkService.makeDisplayState(from: text)
+        let normalizedInput = MarkdownLists.normalizeBulletMarkers(text)
+        let initialState = WikiLinkService.makeDisplayState(from: normalizedInput)
         textView.string = initialState.display
         textView.delegate = context.coordinator
         textView.isVerticallyResizable = true
@@ -276,7 +277,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             (nsView as? ClampedScrollView)?.clampToInsets()
         }
 
-        let displayState = WikiLinkService.makeDisplayState(from: text)
+        let normalizedInput = MarkdownLists.normalizeBulletMarkers(text)
+        let displayState = WikiLinkService.makeDisplayState(from: normalizedInput)
         let displayText = displayState.display
         context.coordinator.wikiLinkMetadata = displayState.metadata
         if textView.string != displayText {
