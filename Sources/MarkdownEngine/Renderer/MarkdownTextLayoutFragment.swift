@@ -126,15 +126,15 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     private func drawCodeBlockBackground(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return }
 
-        // Check if any character in this fragment has the code-block background
-        var codeColor: NSColor?
-        ts.enumerateAttribute(.backgroundColor, in: range, options: []) { value, _, stop in
-            if let color = value as? NSColor, isCodeBlockBackgroundColor(color) {
-                codeColor = color
-                stop.pointee = true
-            }
-        }
-        guard let color = codeColor else { return }
+        // Only fill the full-width band when the FIRST char of the fragment
+        // already carries the code background. A previous version scanned
+        // the whole fragment for any matching char, which incorrectly fired
+        // on regular paragraphs that just happen to contain inline `code`
+        // (the styler reuses the same background colour for both fenced
+        // blocks and inline code spans).
+        guard let firstColor = ts.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor,
+              isCodeBlockBackgroundColor(firstColor) else { return }
+        let color = firstColor
 
         let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
 
