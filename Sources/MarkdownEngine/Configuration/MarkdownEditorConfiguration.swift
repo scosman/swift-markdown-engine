@@ -40,6 +40,7 @@ public struct MarkdownEditorConfiguration: Sendable {
     public var overscroll: OverscrollPolicy
     public var dragSelection: DragSelectionPolicy
     public var contentInsets: ContentInsets
+    public var scrollers: ScrollersPolicy
 
     public init(
         theme: MarkdownEditorTheme = .default,
@@ -57,7 +58,8 @@ public struct MarkdownEditorConfiguration: Sendable {
         paragraph: ParagraphStyle = .default,
         overscroll: OverscrollPolicy = .default,
         dragSelection: DragSelectionPolicy = .default,
-        contentInsets: ContentInsets = .default
+        contentInsets: ContentInsets = .default,
+        scrollers: ScrollersPolicy = .default
     ) {
         self.theme = theme
         self.services = services
@@ -75,9 +77,31 @@ public struct MarkdownEditorConfiguration: Sendable {
         self.overscroll = overscroll
         self.dragSelection = dragSelection
         self.contentInsets = contentInsets
+        self.scrollers = scrollers
     }
 
     public static let `default` = MarkdownEditorConfiguration()
+}
+
+// MARK: - Scroll bars
+
+/// Visibility and auto-hide behavior for the editor's vertical/horizontal scrollers. Defaults match the Nodes app (both off) so that embedders see the historical behavior unless they opt in.
+public struct ScrollersPolicy: Sendable {
+    public var hasVerticalScroller: Bool
+    public var hasHorizontalScroller: Bool
+    public var autohidesScrollers: Bool
+
+    public init(
+        hasVerticalScroller: Bool = false,
+        hasHorizontalScroller: Bool = false,
+        autohidesScrollers: Bool = true
+    ) {
+        self.hasVerticalScroller = hasVerticalScroller
+        self.hasHorizontalScroller = hasHorizontalScroller
+        self.autohidesScrollers = autohidesScrollers
+    }
+
+    public static let `default` = ScrollersPolicy()
 }
 
 // MARK: - Marker visibility

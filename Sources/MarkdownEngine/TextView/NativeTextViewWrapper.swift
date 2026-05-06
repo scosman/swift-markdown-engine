@@ -100,8 +100,9 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
     public func makeNSView(context: Context) -> NSScrollView {
         let scrollView = ClampedScrollView()
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
+        scrollView.hasVerticalScroller = configuration.scrollers.hasVerticalScroller
+        scrollView.hasHorizontalScroller = configuration.scrollers.hasHorizontalScroller
+        scrollView.autohidesScrollers = configuration.scrollers.autohidesScrollers
         scrollView.drawsBackground = false
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets(
@@ -222,6 +223,15 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
 
         if let bottomTextView = nsView.documentView as? NativeTextView {
             bottomTextView.onPasteImage = onPasteImage
+        }
+        if nsView.hasVerticalScroller != configuration.scrollers.hasVerticalScroller {
+            nsView.hasVerticalScroller = configuration.scrollers.hasVerticalScroller
+        }
+        if nsView.hasHorizontalScroller != configuration.scrollers.hasHorizontalScroller {
+            nsView.hasHorizontalScroller = configuration.scrollers.hasHorizontalScroller
+        }
+        if nsView.autohidesScrollers != configuration.scrollers.autohidesScrollers {
+            nsView.autohidesScrollers = configuration.scrollers.autohidesScrollers
         }
         // Refresh services/theme when the embedder hands us a new configuration
         // (e.g. when the available wiki-link targets change). Cheap pointer-/
