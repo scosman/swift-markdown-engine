@@ -7,19 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		03294A012FA262860032526B /* md-engine.icon in Resources */ = {isa = PBXBuildFile; fileRef = 03294A002FA262860032526B /* md-engine.icon */; };
 		1A2B3C0000000000000004BB /* MarkdownEngineDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C0000000000000004AA /* MarkdownEngineDemoApp.swift */; };
 		1A2B3C0000000000000005BB /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C0000000000000005AA /* ContentView.swift */; };
-		1A2B3C0000000000000006BB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1A2B3C0000000000000006AA /* Assets.xcassets */; };
 		1A2B3C0000000000000007CC /* MarkdownEngine in Frameworks */ = {isa = PBXBuildFile; productRef = 1A2B3C0000000000000007BB /* MarkdownEngine */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		03294A002FA262860032526B /* md-engine.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = "md-engine.icon"; sourceTree = "<group>"; };
 		1A2B3C0000000000000003DD /* MarkdownEngineDemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MarkdownEngineDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1A2B3C0000000000000004AA /* MarkdownEngineDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownEngineDemoApp.swift; sourceTree = "<group>"; };
 		1A2B3C0000000000000005AA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		1A2B3C0000000000000006AA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -55,8 +51,6 @@
 			children = (
 				1A2B3C0000000000000004AA /* MarkdownEngineDemoApp.swift */,
 				1A2B3C0000000000000005AA /* ContentView.swift */,
-				1A2B3C0000000000000006AA /* Assets.xcassets */,
-				03294A002FA262860032526B /* md-engine.icon */,
 			);
 			path = MarkdownEngineDemo;
 			sourceTree = "<group>";
@@ -125,8 +119,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1A2B3C0000000000000006BB /* Assets.xcassets in Resources */,
-				03294A012FA262860032526B /* md-engine.icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -148,9 +140,6 @@
 		1A2B3C0000000000000002BB /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "md-engine.icon";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -158,7 +147,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Md demo";
+				INFOPLIST_KEY_CFBundleDisplayName = "MarkdownEngine Demo";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -176,9 +165,6 @@
 		1A2B3C0000000000000002CC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "md-engine.icon";
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -186,7 +172,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Md demo";
+				INFOPLIST_KEY_CFBundleDisplayName = "MarkdownEngine Demo";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
