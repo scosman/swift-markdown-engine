@@ -16,7 +16,7 @@
 A native AppKit Markdown editor for macOS, built on TextKit 2 and bridged to
 SwiftUI. Live styling, wiki-link support, fenced code blocks with syntax
 highlighting, LaTeX rendering, embedded images, and GitHub-style task
-checkboxes — with **zero external dependencies**.
+checkboxes.
 
 ## Motivation
 
