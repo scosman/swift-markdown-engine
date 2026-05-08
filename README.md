@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![CI](https://github.com/nodes-app/swift-markdown-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/nodes-app/swift-markdown-engine/actions/workflows/ci.yml)
 
+https://github.com/nodes-app/swift-markdown-engine/raw/main/media/swift-markdown-demo.mp4
+
 A native AppKit Markdown editor for macOS, built on TextKit 2 and bridged to
 SwiftUI. Live styling, wiki-link support, fenced code blocks with syntax
 highlighting, LaTeX rendering, embedded images, and GitHub-style task
