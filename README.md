@@ -21,9 +21,7 @@ checkboxes — with **zero external dependencies**.
 ## Motivation
 When we started building **[Nodes](https://nodes-web.com/#/)** a minimal, beautiful, and fast writing app for macOS - we believed the editor part would be the easy bit. We were wrong. There just isn't a good native Markdown editor you can drop into a Mac app. WebView wrappers feel sluggish and renderer-only libraries that don't let you edit.
 
-We wanted something specific — a native editor with live Markdown styling out of the box. Nothing like that existed, so we built it. It [wasn't easy](https://blog.krzyzanowskim.com/2025/08/14/textkit-2-the-promised-land/), but the result is solid.
-
-We're sharing it because we wished something like this existed when we started **[Nodes](https://nodes-web.com/#/)**. A Markdown Editor with Apples newest framework
+We wanted something specific — a native editor with live Markdown styling out of the box. Nothing like that existed, so we built it. It [wasn't easy](https://blog.krzyzanowskim.com/2025/08/14/textkit-2-the-promised-land/), but the result is solid. We're sharing it because we wished something like this existed when we started **[Nodes](https://nodes-web.com/#/)**. A swift Md Editor with Apples newest framework
 
 ## Features
 
