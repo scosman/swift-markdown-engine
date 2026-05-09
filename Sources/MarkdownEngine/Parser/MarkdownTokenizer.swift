@@ -20,6 +20,18 @@ private extension MarkdownTokenizer {
     static let italicRegex = try! NSRegularExpression(
         pattern: "(?<!\\*)\\*([^*\\r\\n]+?)(?<!\\*)\\*(?!\\*)"
     )
+    // Underscore-style emphasis: GFM disables intraword emphasis for `_`,
+    // so we require a non-word boundary on each side to avoid matching
+    // identifiers like `snake_case`.
+    static let boldItalicUnderscoreRegex = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9_])___([^_\r\n]+?)___(?![A-Za-z0-9_])"#
+    )
+    static let boldUnderscoreRegex = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9_])__([^_\r\n]+?)__(?![A-Za-z0-9_])"#
+    )
+    static let italicUnderscoreRegex = try! NSRegularExpression(
+        pattern: #"(?<![A-Za-z0-9_])_([^_\r\n]+?)_(?![A-Za-z0-9_])"#
+    )
     static let strikethroughRegex = try! NSRegularExpression(
         pattern: "(?<!~)~~([^~\\r\\n]+?)(?<!~)~~(?!~)"
     )
@@ -99,6 +111,42 @@ enum MarkdownTokenizer {
 
         // Italic *text*
         for match in italicRegex.matches(in: text, options: [], range: fullRange) {
+            let full = match.range
+            let content = match.range(at: 1)
+            let startMarker = NSRange(location: full.location, length: 1)
+            let endMarker = NSRange(location: full.location + full.length - 1, length: 1)
+            tokens.append(MarkdownToken(kind: .italic,
+                                        range: full,
+                                        contentRange: content,
+                                        markerRanges: [startMarker, endMarker]))
+        }
+
+        // Bold+Italic ___text___
+        for match in boldItalicUnderscoreRegex.matches(in: text, options: [], range: fullRange) {
+            let full = match.range
+            let content = match.range(at: 1)
+            let startMarker = NSRange(location: full.location, length: 3)
+            let endMarker = NSRange(location: full.location + full.length - 3, length: 3)
+            tokens.append(MarkdownToken(kind: .boldItalic,
+                                        range: full,
+                                        contentRange: content,
+                                        markerRanges: [startMarker, endMarker]))
+        }
+
+        // Bold __text__
+        for match in boldUnderscoreRegex.matches(in: text, options: [], range: fullRange) {
+            let full = match.range
+            let content = match.range(at: 1)
+            let startMarker = NSRange(location: full.location, length: 2)
+            let endMarker = NSRange(location: full.location + full.length - 2, length: 2)
+            tokens.append(MarkdownToken(kind: .bold,
+                                        range: full,
+                                        contentRange: content,
+                                        markerRanges: [startMarker, endMarker]))
+        }
+
+        // Italic _text_
+        for match in italicUnderscoreRegex.matches(in: text, options: [], range: fullRange) {
             let full = match.range
             let content = match.range(at: 1)
             let startMarker = NSRange(location: full.location, length: 1)
