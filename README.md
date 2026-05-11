@@ -58,12 +58,13 @@ targets: [
 
 Or in Xcode: **File → Add Package Dependencies…** and paste the repo URL.
 
-The package ships two library products — add only what you need:
+The package ships three library products — add only what you need:
 
 | Product | Use when |
 |---|---|
 | `MarkdownEngine` | You want the editor only. Zero external dependencies. |
 | `MarkdownEngineHighlighter` | You want fenced-code syntax highlighting without writing your own bridge. Pulls in [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) transitively. See [Customization → Syntax Highlighting](#syntax-highlighting). |
+| `MarkdownEngineLatex` | You want LaTeX formula rendering without writing your own bridge. Pulls in [SwiftMath](https://github.com/mgriebling/SwiftMath) transitively. See [Customization → LaTeX Rendering](#latex-rendering). |
 
 ## Quick Start
 
@@ -99,7 +100,7 @@ a no-op default so you only implement what you actually need:
 | `WikiLinkResolver` | Resolve a `[[Name]]` to a stable opaque id | (your data model) |
 | `EmbeddedImageProvider` | Look up an `NSImage` for `![[Name]]` | (your asset store) |
 | `SyntaxHighlighter` | Highlight code blocks for a given language | **`HighlighterSwiftBridge`** ([recommended](#syntax-highlighting)) — built on [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) |
-| `LatexRenderer` | Render a LaTeX string to an `NSImage` | [SwiftMath](https://github.com/mgriebling/SwiftMath) — build your own adapter |
+| `LatexRenderer` | Render a LaTeX string to an `NSImage` | **`SwiftMathBridge`** ([recommended](#latex-rendering)) — built on [SwiftMath](https://github.com/mgriebling/SwiftMath) |
 
 Implement what you need and pass it through `MarkdownEditorServices`:
 
@@ -145,6 +146,28 @@ Need a different highlighter library entirely? Implement
 `SyntaxHighlighter` yourself (see [Service Protocols](#service-protocols)
 above for the declaration) and reference the bundled bridge in
 `Sources/MarkdownEngineHighlighter/` as a working example.
+
+### LaTeX Rendering
+
+**Recommended path: depend on the `MarkdownEngineLatex` product and use
+the bundled `SwiftMathBridge`.** Hand-rolling a `LatexRenderer` has
+real footguns the bridge already handles — appearance-aware text color,
+zero-sized output guards (`lockFocus` crashes on 0×0 images),
+window-vs-NSApp appearance distinction, single-letter padding, and an
+internal cache keyed by (latex, font size, appearance, theme color).
+
+```swift
+import MarkdownEngineLatex
+
+var configuration = MarkdownEditorConfiguration.default
+configuration.services = MarkdownEditorServices(
+    latex: SwiftMathBridge()
+)
+```
+
+The bridge uses the Latin Modern math font and tints formulas with
+`MarkdownEditorTheme.latexLightModeText` / `latexDarkModeText`. Pass
+`singleLetterPaddingBottom:` to override the engine's matching default.
 
 ### Theming
 
