@@ -63,7 +63,7 @@ The package ships three library products — add only what you need:
 | Product | Use when |
 |---|---|
 | `MarkdownEngine` | You want the editor only. Zero external dependencies. |
-| `MarkdownEngineHighlighter` | You want fenced-code syntax highlighting without writing your own bridge. Pulls in [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) transitively. See [Customization → Syntax Highlighting](#syntax-highlighting). |
+| `MarkdownEngineCodeBlocks` | You want the full visual code-block experience — background fill, monospace font, and syntax highlighting — without writing your own bridge. Pulls in [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) transitively. See [Customization → Code Blocks](#code-blocks). |
 | `MarkdownEngineLatex` | You want LaTeX formula rendering without writing your own bridge. Pulls in [SwiftMath](https://github.com/mgriebling/SwiftMath) transitively. See [Customization → LaTeX Rendering](#latex-rendering). |
 
 ## Quick Start
@@ -99,7 +99,7 @@ a no-op default so you only implement what you actually need:
 |---|---|---|
 | `WikiLinkResolver` | Resolve a `[[Name]]` to a stable opaque id | (your data model) |
 | `EmbeddedImageProvider` | Look up an `NSImage` for `![[Name]]` | (your asset store) |
-| `SyntaxHighlighter` | Highlight code blocks for a given language | **`HighlighterSwiftBridge`** ([recommended](#syntax-highlighting)) — built on [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) |
+| `SyntaxHighlighter` | Highlight code blocks for a given language | **`HighlighterSwiftBridge`** ([recommended](#code-blocks)) — built on [HighlighterSwift](https://github.com/smittytone/HighlighterSwift) |
 | `LatexRenderer` | Render a LaTeX string to an `NSImage` | **`SwiftMathBridge`** ([recommended](#latex-rendering)) — built on [SwiftMath](https://github.com/mgriebling/SwiftMath) |
 
 Implement what you need and pass it through `MarkdownEditorServices`:
@@ -119,18 +119,18 @@ configuration.services = MarkdownEditorServices(
 
 Each protocol and its no-op default are documented in DocC.
 
-### Syntax Highlighting
+### Code Blocks
 
-**Recommended path: depend on the `MarkdownEngineHighlighter` product
-and use the bundled `HighlighterSwiftBridge`.** Implementing
-`SyntaxHighlighter` from scratch has subtle footguns the bridge
-already handles — line-height metrics across light/dark themes,
-appearance-change observation, layout-pass timing, font name extraction
-from the theme. Use the bundle unless you specifically need a
-non-HighlighterSwift library.
+**Recommended path: depend on the `MarkdownEngineCodeBlocks` product
+and use the bundled `HighlighterSwiftBridge`.** Rolling your own
+`SyntaxHighlighter` has subtle footguns the bridge already handles —
+line-height metrics across light/dark themes, appearance-change
+observation, layout-pass timing, font name extraction from the theme,
+and CSS-theme-derived background colors. Use the bundle unless you
+specifically need a non-HighlighterSwift library.
 
 ```swift
-import MarkdownEngineHighlighter
+import MarkdownEngineCodeBlocks
 
 var configuration = MarkdownEditorConfiguration.default
 configuration.services = MarkdownEditorServices(
@@ -145,7 +145,7 @@ are configurable via init params — see DocC.
 Need a different highlighter library entirely? Implement
 `SyntaxHighlighter` yourself (see [Service Protocols](#service-protocols)
 above for the declaration) and reference the bundled bridge in
-`Sources/MarkdownEngineHighlighter/` as a working example.
+`Sources/MarkdownEngineCodeBlocks/` as a working example.
 
 ### LaTeX Rendering
 

@@ -1,6 +1,6 @@
 //
 //  HighlighterSwiftBridge.swift
-//  MarkdownEngineHighlighter
+//  MarkdownEngineCodeBlocks
 //
 //  Ready-made SyntaxHighlighter conformance backed by HighlighterSwift.
 //

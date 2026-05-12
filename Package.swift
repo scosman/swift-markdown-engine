@@ -9,17 +9,18 @@ import PackageDescription
 // itself has zero external dependencies.
 //
 // Users who want turnkey adapters for the two highest-friction protocols
-// (syntax highlighting, LaTeX rendering) can additionally depend on the
-// `MarkdownEngineHighlighter` and/or `MarkdownEngineLatex` products,
-// which ship pre-built bridges backed by HighlighterSwift and SwiftMath
-// respectively. Both products are opt-in: the core `MarkdownEngine`
-// library stays free of those transitive dependencies at link time.
+// (code-block styling/highlighting, LaTeX rendering) can additionally
+// depend on the `MarkdownEngineCodeBlocks` and/or `MarkdownEngineLatex`
+// products, which ship pre-built bridges backed by HighlighterSwift and
+// SwiftMath respectively. Both products are opt-in: the core
+// `MarkdownEngine` library stays free of those transitive dependencies
+// at link time.
 let package = Package(
     name: "MarkdownEngine",
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "MarkdownEngine", targets: ["MarkdownEngine"]),
-        .library(name: "MarkdownEngineHighlighter", targets: ["MarkdownEngineHighlighter"]),
+        .library(name: "MarkdownEngineCodeBlocks", targets: ["MarkdownEngineCodeBlocks"]),
         .library(name: "MarkdownEngineLatex", targets: ["MarkdownEngineLatex"]),
     ],
     dependencies: [
@@ -29,7 +30,7 @@ let package = Package(
     targets: [
         .target(name: "MarkdownEngine"),
         .target(
-            name: "MarkdownEngineHighlighter",
+            name: "MarkdownEngineCodeBlocks",
             dependencies: [
                 "MarkdownEngine",
                 .product(name: "Highlighter", package: "HighlighterSwift"),
