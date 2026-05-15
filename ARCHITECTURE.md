@@ -13,17 +13,22 @@ products.
 
 ```bash
 Sources/
-├── MarkdownEngine/                 # core target — zero deps
-│   ├── Configuration/              # theme + tunable knob structs
-│   ├── Services/                   # 4 protocols + no-op defaults + wiki-link transform
-│   ├── Parser/                     # regex tokenizer + emphasis stack
-│   ├── Styling/                    # one file per token class, orchestrated by MarkdownStyler
-│   ├── Renderer/                   # TextKit 2 wrappers, image cache, layout fragment
-│   ├── Input/                      # typing helpers — LaTeX / image auto-wrap, lists
-│   ├── TextView/                   # NSTextView subclass + Coordinator + SwiftUI bridge
-│   └── MarkdownEngine.docc/        # DocC catalog
-├── MarkdownEngineCodeBlocks/       # opt-in product — HighlighterSwift → SyntaxHighlighter
-└── MarkdownEngineLatex/            # opt-in product — SwiftMath → LatexRenderer
+├── MarkdownEngine/                          # core target — zero deps
+│   ├── Configuration/                       # MarkdownEditorConfiguration + MarkdownEditorTheme
+│   ├── Services/                            # 4 protocols, no-op defaults, WikiLinkService
+│   ├── Parser/                              # MarkdownTokenizer.swift + emphasis stack parser
+│   ├── Styling/                             # MarkdownStyler.swift + one extension per token class
+│   ├── Renderer/                            # LayoutBridge, MarkdownTextLayoutFragment, EmbeddedImageCache
+│   ├── Input/                               # MarkdownInputHandler + MarkdownListHandler
+│   ├── TextView/
+│   │   ├── NativeTextViewWrapper.swift      # SwiftUI entry point (NSViewRepresentable)
+│   │   ├── NativeTextView/                  # AppKit subclass + UX extensions (paste, drag-select, …)
+│   │   └── Coordinator/                     # NSTextViewDelegate split by concern (restyling, find, …)
+│   └── MarkdownEngine.docc/                 # DocC catalog
+├── MarkdownEngineCodeBlocks/                # opt-in product
+│   └── HighlighterSwiftBridge.swift         # SyntaxHighlighter backed by HighlighterSwift
+└── MarkdownEngineLatex/                     # opt-in product
+    └── SwiftMathBridge.swift                # LatexRenderer backed by SwiftMath
 ```
 
 The rest of this file is a per-directory tour, in the order text flows
