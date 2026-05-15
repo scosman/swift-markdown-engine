@@ -25,24 +25,6 @@ Sources/
 The rest of this file is a per-directory tour, in the order text flows
 through the engine.
 
-## Pipeline
-
-```mermaid
-flowchart LR
-    A(["storage text<br/>[[Name|id]]"]) --> B[WikiLinkService<br/>makeDisplayState]
-    B --> C(["display text<br/>[[Name]]"])
-    C --> D[MarkdownTokenizer<br/>parseTokens]
-    D --> E(["[MarkdownToken]"])
-    F(["caret"]) -.-> G(["active token set"])
-    E -.-> G
-    E --> H[MarkdownStyler<br/>styleAttributes]
-    G -.-> H
-    I(["service protocols<br/>WikiLink · Image · Highlighter · Latex"]) -.-> H
-    H --> J(["[StyledRange]"])
-    J --> K[Coordinator<br/>rebuildTextStorageAndStyle]
-    K --> L(["NSTextView"])
-```
-
 ## [`Parser/`](Sources/MarkdownEngine/Parser): what is a token?
 
 Regex-driven tokenizer. Emphasis (`*`, `**`, `***`) runs through a
