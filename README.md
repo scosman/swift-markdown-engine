@@ -254,9 +254,12 @@ version (`0.x.y`) in your `Package.swift`.
 
 ## Contributing
 
-Bug reports, ideas, and pull requests are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the development setup, coding
-conventions, and PR process.
+Bug reports, ideas, and pull requests are welcome.
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — codemap and pipeline guide for
+  contributors
+- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, PR process, and design
+  constraints
 
 ## License
 
