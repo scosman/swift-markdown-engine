@@ -72,8 +72,8 @@ Non-negotiable for the core `MarkdownEngine` target:
 - **Public surface stays small.** Favor `internal`; new public symbols
   need a DocC comment.
 
-See [ARCHITECTURE.md → Invariants](ARCHITECTURE.md#invariants) for the
-rest.
+[ARCHITECTURE.md](ARCHITECTURE.md) has the load-bearing invariants
+inline with the directory they apply to.
 
 ## Commit messages
 
