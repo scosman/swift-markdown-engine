@@ -59,8 +59,11 @@ private extension MarkdownTokenizer {
         pattern: #"^```[ \t]*([A-Za-z0-9_+#.-]*?)[ \t]*\r?\n((?:(?!^```[^\r\n]*$)[\s\S])*?)^(```)[^\r\n]*$"#,
         options: [.anchorsMatchLines]
     )
+    // CommonMark code span: an opening run of N backticks (not part of a
+    // longer run) closed by a run of exactly N backticks. The content may
+    // itself contain shorter/longer backtick runs (e.g. `` `tick` ``).
     static let inlineCodeRegex = try! NSRegularExpression(
-        pattern: "`([^`\\n]+)`",
+        pattern: #"(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)"#,
         options: []
     )
     static let blockLatexRegex = try! NSRegularExpression(
@@ -306,16 +309,37 @@ enum MarkdownTokenizer {
                                         markerRanges: [openMarker, closeMarker]))
         }
 
-        // Inline code `code`
+        // Inline code `code` / `` `tick` `` (N-backtick runs)
         for match in inlineCodeRegex.matches(in: text, options: [], range: fullRange) {
             let full = match.range(at: 0)
-            let content = match.range(at: 1)
-            let openBacktick = NSRange(location: full.location, length: 1)
-            let closeBacktick = NSRange(location: full.location + full.length - 1, length: 1)
+            let delimLength = match.range(at: 1).length          // run of N backticks
+            let rawContent = match.range(at: 2)
+
+            // CommonMark: if the content both begins and ends with a space
+            // but isn't all spaces, strip exactly one space from each side.
+            let rawString = (text as NSString).substring(with: rawContent)
+            let stripsSpaces = rawString.count >= 2
+                && rawString.first == " "
+                && rawString.last == " "
+                && rawString.contains(where: { $0 != " " })
+            let lead = stripsSpaces ? 1 : 0
+            let trail = stripsSpaces ? 1 : 0
+
+            let content = NSRange(
+                location: rawContent.location + lead,
+                length: rawContent.length - lead - trail
+            )
+            // The markers swallow the delimiter runs AND any stripped space,
+            // so they collapse together when the syntax is hidden.
+            let openMarker = NSRange(location: full.location, length: delimLength + lead)
+            let closeMarker = NSRange(
+                location: full.location + full.length - delimLength - trail,
+                length: delimLength + trail
+            )
             tokens.append(MarkdownToken(kind: .inlineCode,
                                         range: full,
                                         contentRange: content,
-                                        markerRanges: [openBacktick, closeBacktick]))
+                                        markerRanges: [openMarker, closeMarker]))
         }
 
         // Inline LaTeX $formula$
