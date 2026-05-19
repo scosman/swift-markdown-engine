@@ -49,9 +49,19 @@ extension NativeTextViewCoordinator {
         }
         cachedSpellingDisabled = shouldDisableSpelling
 
-        textView.isAutomaticSpellingCorrectionEnabled = !shouldDisableSpelling
-        textView.isContinuousSpellCheckingEnabled = !shouldDisableSpelling
-        textView.isGrammarCheckingEnabled = !shouldDisableSpelling
+        // Inside a suppress zone (code/LaTeX/link), force everything off.
+        // Outside, restore to the user's preference — captured via the toggle
+        // overrides in `NativeTextView+SpellingToggles.swift` — so a manual
+        // "off" survives caret movement through suppress zones.
+        textView.isAutomaticSpellingCorrectionEnabled = shouldDisableSpelling
+            ? false
+            : userPrefersAutomaticSpellingCorrection
+        textView.isContinuousSpellCheckingEnabled = shouldDisableSpelling
+            ? false
+            : userPrefersContinuousSpellChecking
+        textView.isGrammarCheckingEnabled = shouldDisableSpelling
+            ? false
+            : userPrefersGrammarChecking
         textView.isAutomaticQuoteSubstitutionEnabled = !shouldDisableSpelling
         textView.isAutomaticDashSubstitutionEnabled = false
     }

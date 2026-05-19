@@ -68,6 +68,10 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
     /// Fires when the set of visible code blocks changes, so embedders can
     /// overlay copy buttons (see ``CodeBlockButton``).
     public var onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)?
+    /// Fires after the user toggles any of the three spell/grammar/auto-correction
+    /// menu items. Embedders persist the policy and pass it back via
+    /// ``MarkdownEditorConfiguration/spellChecking`` on next launch.
+    public var onSpellCheckingPolicyChanged: ((SpellCheckingPolicy) -> Void)?
 
     public init(
         text: Binding<String>,
@@ -82,7 +86,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         onLinkClick: ((String) -> Void)? = nil,
         onCaretRectChange: ((CGRect) -> Void)? = nil,
         onInlineSelectionChange: ((InlineSelectionState?) -> Void)? = nil,
-        onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)? = nil
+        onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)? = nil,
+        onSpellCheckingPolicyChanged: ((SpellCheckingPolicy) -> Void)? = nil
     ) {
         self._text = text
         self._isWikiLinkActive = isWikiLinkActive
@@ -97,6 +102,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         self.onCaretRectChange = onCaretRectChange
         self.onInlineSelectionChange = onInlineSelectionChange
         self.onCodeBlockSelectionChange = onCodeBlockSelectionChange
+        self.onSpellCheckingPolicyChanged = onSpellCheckingPolicyChanged
     }
 
     public func makeNSView(context: Context) -> NSScrollView {
@@ -154,9 +160,9 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.font = font
         textView.baseFont = font
         textView.allowsUndo = true
-        textView.isAutomaticSpellingCorrectionEnabled = true
-        textView.isContinuousSpellCheckingEnabled = true
-        textView.isGrammarCheckingEnabled = true
+        textView.isAutomaticSpellingCorrectionEnabled = configuration.spellChecking.automaticSpellingCorrection
+        textView.isContinuousSpellCheckingEnabled = configuration.spellChecking.continuousSpellChecking
+        textView.isGrammarCheckingEnabled = configuration.spellChecking.grammarChecking
         textView.isAutomaticQuoteSubstitutionEnabled = true
         textView.isAutomaticDataDetectionEnabled = true
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -345,6 +351,10 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         coordinator.documentId = documentId
         coordinator.configuration = configuration
         coordinator.onCodeBlockSelectionChange = onCodeBlockSelectionChange
+        coordinator.userPrefersContinuousSpellChecking = configuration.spellChecking.continuousSpellChecking
+        coordinator.userPrefersGrammarChecking = configuration.spellChecking.grammarChecking
+        coordinator.userPrefersAutomaticSpellingCorrection = configuration.spellChecking.automaticSpellingCorrection
+        coordinator.onSpellCheckingPolicyChanged = onSpellCheckingPolicyChanged
         return coordinator
     }
 }

@@ -44,6 +44,7 @@ public struct MarkdownEditorConfiguration: Sendable {
     public var safeAreaInsets: SafeAreaInsets
     public var scrollers: ScrollersPolicy
     public var textInsets: TextInsets
+    public var spellChecking: SpellCheckingPolicy
 
     public init(
         theme: MarkdownEditorTheme = .default,
@@ -63,7 +64,8 @@ public struct MarkdownEditorConfiguration: Sendable {
         dragSelection: DragSelectionPolicy = .default,
         safeAreaInsets: SafeAreaInsets = .default,
         scrollers: ScrollersPolicy = .default,
-        textInsets: TextInsets = .default
+        textInsets: TextInsets = .default,
+        spellChecking: SpellCheckingPolicy = .default
     ) {
         self.theme = theme
         self.services = services
@@ -83,9 +85,36 @@ public struct MarkdownEditorConfiguration: Sendable {
         self.safeAreaInsets = safeAreaInsets
         self.scrollers = scrollers
         self.textInsets = textInsets
+        self.spellChecking = spellChecking
     }
 
     public static let `default` = MarkdownEditorConfiguration()
+}
+
+// MARK: - Spell checking
+
+/// Initial state for the three "Spelling and Grammar" toggles. Only consulted
+/// at `makeNSView` time; afterwards the user's context-menu choices take
+/// precedence and are surfaced via ``NativeTextViewWrapper/onSpellCheckingPolicyChanged``.
+public struct SpellCheckingPolicy: Sendable {
+    /// Mirrors `NSTextView.isContinuousSpellCheckingEnabled`.
+    public var continuousSpellChecking: Bool
+    /// Mirrors `NSTextView.isGrammarCheckingEnabled`.
+    public var grammarChecking: Bool
+    /// Mirrors `NSTextView.isAutomaticSpellingCorrectionEnabled`.
+    public var automaticSpellingCorrection: Bool
+
+    public init(
+        continuousSpellChecking: Bool = true,
+        grammarChecking: Bool = true,
+        automaticSpellingCorrection: Bool = true
+    ) {
+        self.continuousSpellChecking = continuousSpellChecking
+        self.grammarChecking = grammarChecking
+        self.automaticSpellingCorrection = automaticSpellingCorrection
+    }
+
+    public static let `default` = SpellCheckingPolicy()
 }
 
 // MARK: - Scroll bars

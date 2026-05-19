@@ -69,6 +69,40 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     // Skip spellcheck property setters when the state wouldn't change.
     var cachedSpellingDisabled: Bool?
 
+    // Mirrors the user's last-known preference for each spell/grammar toggle.
+    // `updateAutocorrectSettings` reads these when restoring outside a
+    // suppress zone, so caret movement no longer clobbers a manual "off".
+    var userPrefersContinuousSpellChecking: Bool = true
+    var userPrefersGrammarChecking: Bool = true
+    var userPrefersAutomaticSpellingCorrection: Bool = true
+
+    /// Fires after the user toggles a spell/grammar/auto-correction menu item.
+    /// Embedders persist the returned policy (e.g. to `UserDefaults`) and feed
+    /// it back via ``MarkdownEditorConfiguration/spellChecking`` on next launch.
+    var onSpellCheckingPolicyChanged: ((SpellCheckingPolicy) -> Void)?
+
+    var currentSpellCheckingPolicy: SpellCheckingPolicy {
+        SpellCheckingPolicy(
+            continuousSpellChecking: userPrefersContinuousSpellChecking,
+            grammarChecking: userPrefersGrammarChecking,
+            automaticSpellingCorrection: userPrefersAutomaticSpellingCorrection
+        )
+    }
+
+    /// Called from ``NativeTextView`` toggle overrides after `super` flips the
+    /// underlying property. Snapshots the text view's state, refreshes the
+    /// cache so the next caret move doesn't immediately overwrite it, and
+    /// notifies the embedder.
+    func didToggleSpellCheckingPolicy(textView: NSTextView) {
+        userPrefersContinuousSpellChecking = textView.isContinuousSpellCheckingEnabled
+        userPrefersGrammarChecking = textView.isGrammarCheckingEnabled
+        userPrefersAutomaticSpellingCorrection = textView.isAutomaticSpellingCorrectionEnabled
+        // Invalidate the "didn't change" short-circuit so the next selection
+        // update re-applies the preferences cleanly.
+        cachedSpellingDisabled = nil
+        onSpellCheckingPolicyChanged?(currentSpellCheckingPolicy)
+    }
+
     struct ParsedDocument {
         let tokens: [MarkdownToken]
         let codeTokens: [MarkdownToken]
