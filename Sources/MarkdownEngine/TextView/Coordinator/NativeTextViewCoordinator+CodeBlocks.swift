@@ -2,6 +2,8 @@
 //  NativeTextViewCoordinator+CodeBlocks.swift
 //  MarkdownEngine
 //
+//  Created by Luca Chen on 16.03.26.
+//
 //  Tracks code-block selections in the document so the host can render the
 //  small "copy code" button overlay on top of every fenced code block. Skips
 //  blocks the caret is currently inside (`activeTokenIndices`) to avoid the
@@ -28,6 +30,12 @@ extension NativeTextViewCoordinator {
 
         let nsText = textView.string as NSString
         let scrollOffset = textView.enclosingScrollView?.contentView.bounds.origin ?? .zero
+
+        // One-shot full-document layout per document; fixes stale Y from TextKit 2's lazy layout without per-update cost.
+        if !didEnsureLayoutForCurrentDocument, let tlm = textView.textLayoutManager {
+            tlm.ensureLayout(for: tlm.documentRange)
+            didEnsureLayoutForCurrentDocument = true
+        }
 
         let selections: [CodeBlockSelection] = cachedCodeBlockTokens.compactMap { originalIndex, token in
             guard !activeTokenIndices.contains(originalIndex) else { return nil }

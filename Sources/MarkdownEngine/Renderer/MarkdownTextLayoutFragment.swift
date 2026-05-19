@@ -30,6 +30,12 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     static let blockquoteIndentPerLevel: CGFloat = 18
     static let blockquoteBarWidth: CGFloat = 3
 
+    // MARK: - FB15131180
+
+    /// Maps to TextKit-2's private `extraLineFragmentAttributes` selector so we can pin the trailing extra-line metrics to body font; otherwise a trailing heading paragraph inflates `usageBoundsForTextContainer` by ~30pt when the caret enters it. Pattern from STTextView.
+    @objc(extraLineFragmentAttributes)
+    dynamic var stExtraLineFragmentAttributes: NSDictionary?
+
     // MARK: - Rendering surface
 
     /// Extend rendering bounds for code-block backgrounds (full container width)
@@ -95,7 +101,9 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
         let localIndex = docIndex - fragRange.location
         guard localIndex >= 0 else { return nil }
 
-        var lineY: CGFloat = 0
+        // NSTextLineFragment.typographicBounds.origin.y is already relative to the
+        // parent layout fragment, so we use it directly — accumulating per-line
+        // heights would double-count the inter-line offset on wrapped lines.
         for lineFragment in textLineFragments {
             let lr = lineFragment.characterRange
             if localIndex >= lr.location && localIndex < lr.location + lr.length {
@@ -103,11 +111,10 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
                 let tb = lineFragment.typographicBounds
                 return (
                     x: point.x + tb.origin.x + charPos.x,
-                    baselineY: point.y + lineY + charPos.y,
+                    baselineY: point.y + tb.origin.y + charPos.y,
                     lineHeight: tb.height
                 )
             }
-            lineY += lineFragment.typographicBounds.height
         }
         return nil
     }
@@ -115,17 +122,15 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     /// Typographic bounds of the line fragment containing `localIndex`
     /// (index relative to the fragment, not the document).
     private func lineBounds(forLocalIndex localIndex: Int, point: CGPoint) -> CGRect? {
-        var lineY: CGFloat = 0
         for lineFragment in textLineFragments {
             let lr = lineFragment.characterRange
             if localIndex >= lr.location && localIndex < lr.location + lr.length {
                 let tb = lineFragment.typographicBounds
                 return CGRect(x: point.x + lineFragment.glyphOrigin.x + tb.origin.x,
-                              y: point.y + lineY + tb.origin.y,
+                              y: point.y + tb.origin.y,
                               width: tb.width,
                               height: tb.height)
             }
-            lineY += lineFragment.typographicBounds.height
         }
         return nil
     }
@@ -166,15 +171,9 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     private func drawCodeBlockBackground(at point: CGPoint, in context: CGContext) {
         guard let ts = textStorage, let range = fragmentNSRange, range.length > 0 else { return }
 
-        // Only fill the full-width band when the FIRST char of the fragment
-        // already carries the code background. A previous version scanned
-        // the whole fragment for any matching char, which incorrectly fired
-        // on regular paragraphs that just happen to contain inline `code`
-        // (the styler reuses the same background colour for both fenced
-        // blocks and inline code spans).
-        guard let firstColor = ts.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor,
-              isCodeBlockBackgroundColor(firstColor) else { return }
-        let color = firstColor
+        // Only fenced code-block fragments get the full-width fill (first char must carry the code background).
+        guard let color = ts.attribute(.backgroundColor, at: range.location, effectiveRange: nil) as? NSColor,
+              isCodeBlockBackgroundColor(color) else { return }
 
         let containerWidth = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
 
@@ -192,20 +191,68 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
         let snappedY = floor(rawY * scale) / scale
         let snappedMaxY = ceil(rawMaxY * scale) / scale
 
-        // Draw full-width background
+        // Draw full-width background, clipping out any active selection rects
+        // so the system's blue selection highlight remains visible inside code blocks.
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         let nsContext = NSGraphicsContext(cgContext: context, flipped: true)
         NSGraphicsContext.current = nsContext
 
-        color.setFill()
         let bgRect = CGRect(
             x: point.x - layoutFragmentFrame.origin.x,
             y: snappedY,
             width: containerWidth,
             height: snappedMaxY - snappedY
         )
-        NSBezierPath(rect: bgRect).fill()
+
+        let selectionRects = selectionRectsInDrawCoordinates(drawPoint: point, snappedY: snappedY, snappedMaxY: snappedMaxY)
+        color.setFill()
+        if selectionRects.isEmpty {
+            NSBezierPath(rect: bgRect).fill()
+        } else {
+            let path = NSBezierPath()
+            path.windingRule = .evenOdd
+            path.appendRect(bgRect)
+            for r in selectionRects {
+                path.appendRect(r.intersection(bgRect))
+            }
+            path.fill()
+        }
+    }
+
+    /// Returns active text-selection rectangles intersecting this fragment, in
+    /// the same draw-relative coordinate system used by `drawCodeBlockBackground`.
+    private func selectionRectsInDrawCoordinates(drawPoint: CGPoint, snappedY: CGFloat, snappedMaxY: CGFloat) -> [CGRect] {
+        guard let tlm = textLayoutManager else { return [] }
+        var rects: [CGRect] = []
+
+        let dx = drawPoint.x - layoutFragmentFrame.origin.x
+        let myRange = self.rangeInElement
+
+        for selection in tlm.textSelections {
+            for textRange in selection.textRanges {
+                let interStart = textRange.location.compare(myRange.location) == .orderedAscending
+                    ? myRange.location : textRange.location
+                let interEnd = textRange.endLocation.compare(myRange.endLocation) == .orderedDescending
+                    ? myRange.endLocation : textRange.endLocation
+                guard interStart.compare(interEnd) == .orderedAscending,
+                      let intersection = NSTextRange(location: interStart, end: interEnd) else { continue }
+
+                tlm.enumerateTextSegments(in: intersection, type: .selection, options: []) { _, segFrame, _, _ in
+                    // Expand vertically to match the bgRect's snapped span so the
+                    // even-odd cut-out is geometrically congruent with the fill.
+                    let drawRect = CGRect(
+                        x: segFrame.origin.x + dx,
+                        y: snappedY,
+                        width: segFrame.width,
+                        height: snappedMaxY - snappedY
+                    )
+                    rects.append(drawRect)
+                    return true
+                }
+            }
+        }
+        return rects
     }
 
     private func isCodeBlockBackgroundColor(_ color: NSColor) -> Bool {
@@ -349,14 +396,14 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
         // tokens are always single-line, but the loop is robust if a
         // future caller ever stacks several rules in one paragraph.)
         let fragLocation = fragmentNSRange?.location ?? 0
-        var lineY = point.y
         for lineFragment in textLineFragments {
             let lr = lineFragment.characterRange
             let docStart = fragLocation + lr.location
             let isHR = ts.attribute(.thematicBreak, at: docStart, effectiveRange: nil) as? Bool == true
             let tb = lineFragment.typographicBounds
             if isHR {
-                let centerY = lineY + tb.height / 2
+                // tb.origin.y is already relative to this layout fragment.
+                let centerY = point.y + tb.origin.y + tb.height / 2
                 let bandRect = CGRect(
                     x: point.x - layoutFragmentFrame.origin.x,
                     y: centerY - 0.5,
@@ -365,7 +412,6 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
                 )
                 NSBezierPath(rect: bandRect).fill()
             }
-            lineY += tb.height
         }
     }
 
@@ -395,20 +441,20 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         let fragLocation = fragmentNSRange?.location ?? 0
         let leftEdge = point.x - layoutFragmentFrame.origin.x
-        var lineY = point.y
         for lineFragment in textLineFragments {
             let lr = lineFragment.characterRange
             let docStart = fragLocation + lr.location
             let tb = lineFragment.typographicBounds
             if let level = ts.attribute(.blockquoteLevel, at: docStart, effectiveRange: nil) as? Int {
+                // tb.origin.y is already relative to this layout fragment.
+                let barY = point.y + tb.origin.y
                 for i in 0..<level {
                     let barX = leftEdge + CGFloat(i) * indentPerLevel + indentPerLevel * 0.25
                     NSBezierPath(rect: CGRect(
-                        x: barX, y: lineY, width: barWidth, height: tb.height
+                        x: barX, y: barY, width: barWidth, height: tb.height
                     )).fill()
                 }
             }
-            lineY += tb.height
         }
     }
 
@@ -476,6 +522,21 @@ final class MarkdownLayoutManagerDelegate: NSObject, NSTextLayoutManagerDelegate
         textLayoutFragmentFor location: any NSTextLocation,
         in textElement: NSTextElement
     ) -> NSTextLayoutFragment {
-        MarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        let fragment = MarkdownTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
+        // Seed body font + paragraphStyle so the trailing fragment doesn't inherit heading metrics (FB15131180).
+        if let textView = textLayoutManager.textContainer?.textView as? NativeTextView {
+            let baseFont = textView.baseFont
+            let para = NSMutableParagraphStyle()
+            let lineHeight = layoutBridgeDefaultLineHeight(for: baseFont, using: textView.layoutBridge)
+            para.minimumLineHeight = ceil(lineHeight) + textView.configuration.paragraph.lineHeightExtraSpacing
+            para.paragraphSpacing = ceil(lineHeight * textView.configuration.paragraph.spacingFactor)
+            para.paragraphSpacingBefore = 0
+            fragment.stExtraLineFragmentAttributes = NSDictionary(dictionary: [
+                NSAttributedString.Key.font: baseFont,
+                NSAttributedString.Key.foregroundColor: textView.configuration.theme.bodyText,
+                NSAttributedString.Key.paragraphStyle: para
+            ])
+        }
+        return fragment
     }
 }

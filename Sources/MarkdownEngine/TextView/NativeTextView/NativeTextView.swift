@@ -58,5 +58,17 @@ final class NativeTextView: NSTextView {
         }
     }
 
+    // AppKit skips textDidChange for setMarkedText, so markdown attrs (heading font, code-block bg) don't reach the marked range — restyle the affected paragraph to fix it.
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        guard hasMarkedText(),
+              let coord = delegate as? NativeTextViewCoordinator else { return }
+        let marked = markedRange()
+        guard marked.location != NSNotFound, marked.length > 0 else { return }
+        let nsText = self.string as NSString
+        let paragraph = nsText.paragraphRange(for: marked)
+        coord.restyleParagraphs([paragraph], in: self)
+    }
+
     deinit { caretIndicatorObservation?.invalidate() }
 }

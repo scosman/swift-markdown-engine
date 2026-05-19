@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to MarkdownEngine are documented in this file.
+All notable changes to swift-markdown-engine are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
@@ -17,13 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   ```swift
   var config = MarkdownEditorConfiguration.default
-  config.contentInsets = ContentInsets(top: 55.4)
+  config.safeAreaInsets = SafeAreaInsets(top: 55.4)
   ```
 
 ### Added
-- `ContentInsets` struct exposing `top` / `leading` / `trailing` / `bottom`
+- `SafeAreaInsets` struct exposing `top` / `leading` / `trailing` / `bottom`
   inset knobs for the editor's enclosing scroll view, configurable via
-  `MarkdownEditorConfiguration.contentInsets`.
+  `MarkdownEditorConfiguration.safeAreaInsets`.
 
 ### Fixed
 - `NativeTextViewWrapper` now applies its initial styling pass even when

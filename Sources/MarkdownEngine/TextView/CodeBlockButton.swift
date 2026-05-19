@@ -42,11 +42,26 @@ public struct CodeBlockSelection: Identifiable, Sendable {
 public struct CodeBlockButton: View {
     /// The code block this button is attached to.
     public let selection: CodeBlockSelection
+    /// Vertical inset from the code block's top edge, in points. Positive
+    /// values push the button down into the code block.
+    public let topInset: CGFloat
+    /// Horizontal inset from the code block's trailing edge, in points.
+    /// Positive values keep the button inside the code block; negative
+    /// values let it overflow into a parent's gutter (the legacy Nodes
+    /// look).
+    public let trailingInset: CGFloat
     /// Closure invoked when the user clicks the button.
     public let onCopy: () -> Void
 
-    public init(selection: CodeBlockSelection, onCopy: @escaping () -> Void) {
+    public init(
+        selection: CodeBlockSelection,
+        topInset: CGFloat = 6,
+        trailingInset: CGFloat = 8,
+        onCopy: @escaping () -> Void
+    ) {
         self.selection = selection
+        self.topInset = topInset
+        self.trailingInset = trailingInset
         self.onCopy = onCopy
     }
 
@@ -72,8 +87,8 @@ public struct CodeBlockButton: View {
                     .cornerRadius(6)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 6)
-                .padding(.trailing, -25)
+                .padding(.top, topInset)
+                .padding(.trailing, trailingInset)
             }
             .position(
                 x: selection.rect.midX,

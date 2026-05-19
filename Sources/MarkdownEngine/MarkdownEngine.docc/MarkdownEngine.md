@@ -1,5 +1,4 @@
 # ``MarkdownEngine``
-# ``MarkdownEngine``
 
 A TextKit 2-backed Markdown editor view for macOS, bridged to SwiftUI.
 
