@@ -43,6 +43,55 @@ extension MarkdownStyler {
         return attrs
     }
 
+    // MARK: Setext Headings
+
+    static func styleSetextHeadings(_ ctx: StylingContext) -> [StyledRange] {
+        var attrs: [StyledRange] = []
+        for (idx, token) in ctx.tokens.enumerated() where token.kind == .setextHeading {
+            guard let underline = token.markerRanges.first else { continue }
+            // `=` underline → level 1, `-` underline → level 2.
+            let firstChar = ctx.nsText.substring(with: NSRange(location: underline.location, length: 1))
+            let level = firstChar == "=" ? 1 : 2
+
+            let multiplier = ctx.configuration.headings.fontMultiplier(for: level)
+            let fontSize = ctx.baseFont.pointSize * multiplier
+            let headingBase = NSFont(name: ctx.fontName, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
+            let headingFont = NSFontManager.shared.convert(headingBase, toHaveTrait: .boldFontMask)
+
+            // Heading look on the text line.
+            let textParaRange = ctx.nsText.paragraphRange(for: token.contentRange)
+            let headingLineHeight = ceil(layoutBridgeDefaultLineHeight(for: headingFont, using: ctx.layoutBridge)) + 1
+            let headingPara = NSMutableParagraphStyle()
+            headingPara.minimumLineHeight = headingLineHeight
+            headingPara.maximumLineHeight = headingLineHeight
+            headingPara.paragraphSpacingBefore = headingFont.pointSize * ctx.configuration.headings.topSpacingEm(for: level)
+            headingPara.paragraphSpacing = 0
+            attrs.append((textParaRange, [.paragraphStyle: headingPara]))
+            attrs.append((token.contentRange, [.font: headingFont]))
+
+            // The underline line: revealed (muted) while editing, otherwise
+            // collapsed to a near-invisible sliver so it reads as one
+            // heading. shrinkInactiveMarkers also shrinks the marker run.
+            let isActive = ctx.activeTokenIndices.contains(idx)
+            let underlineParaRange = ctx.nsText.paragraphRange(for: underline)
+            if isActive {
+                attrs.append((underlineParaRange, [.foregroundColor: ctx.configuration.theme.headingMarker]))
+            } else {
+                let collapsed = NSMutableParagraphStyle()
+                collapsed.minimumLineHeight = 1
+                collapsed.maximumLineHeight = 1
+                collapsed.paragraphSpacing = 0
+                collapsed.paragraphSpacingBefore = 0
+                attrs.append((underlineParaRange, [
+                    .foregroundColor: NSColor.clear,
+                    .font: ctx.inlineMarkerFont,
+                    .paragraphStyle: collapsed
+                ]))
+            }
+        }
+        return attrs
+    }
+
     // MARK: Bold / Italic / Bold+Italic
 
     static func styleEmphasis(_ ctx: StylingContext) -> [StyledRange] {

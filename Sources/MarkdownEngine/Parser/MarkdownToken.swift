@@ -22,6 +22,10 @@ enum MarkdownTokenKind {
     case link
     case wikiLink
     case heading
+    /// A Setext heading: a text line underlined by `===` (level 1) or
+    /// `---` (level 2). `contentRange` is the text line; the single
+    /// `markerRanges` entry is the underline line.
+    case setextHeading
     case codeBlock
     case inlineCode
     case blockLatex

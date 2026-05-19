@@ -158,6 +158,7 @@ enum MarkdownStyler {
             configuration: configuration
         )
         result += styleHeadings(ctx)
+        result += styleSetextHeadings(ctx)
         result += styleEmphasis(ctx)
         result += styleAutoLinks(ctx)
         result += styleWikiLinks(ctx, wikiLinkIDProvider: wikiLinkIDProvider)
@@ -333,6 +334,13 @@ extension MarkdownStyler {
         let hrPattern = #"^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$"#
         if let hrRegex = try? NSRegularExpression(pattern: hrPattern, options: [.anchorsMatchLines]) {
             for hrMatch in hrRegex.matches(in: ctx.text, range: ctx.fullRange) {
+                // A `-----` line that underlines a paragraph is a Setext
+                // H2, not a thematic break — let the setext styler own it.
+                let isSetextUnderline = ctx.tokens.contains {
+                    $0.kind == .setextHeading
+                    && NSIntersectionRange($0.range, hrMatch.range).length > 0
+                }
+                if isSetextUnderline { continue }
                 // Hide the source chars and tag the range so the layout
                 // fragment can paint a full-width rule. The previous
                 // implementation used a thick strikethrough across the
