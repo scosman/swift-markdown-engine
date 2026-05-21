@@ -120,10 +120,15 @@ extension NativeTextView {
 
         recalcOverscroll(for: scrollView, targetWidth: newSize.width, debugTag: "setFrameSize")
 
-        // Reposition wide-table overlays when container width changes.
+        // Width change must trigger a full re-style — wide-table kern bakes in displayWidth.
         if widthChanged {
             DispatchQueue.main.async { [weak self] in
-                self?.updateWideTableOverlays()
+                guard let self = self else { return }
+                if let coord = self.delegate as? NativeTextViewCoordinator {
+                    coord.rebuildTextStorageAndStyle(self, from: self.string, invalidateLayout: true)
+                } else {
+                    self.updateWideTableOverlays()
+                }
             }
         }
     }

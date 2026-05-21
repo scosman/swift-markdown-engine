@@ -73,14 +73,16 @@ final class WideTableOverlay: NSScrollView {
         }
     }
 
-    /// Forward vertical-dominant scrolls to the outer document so the user
-    /// can scroll past the table even while hovering over it.
+    /// Forward everything except clearly-horizontal events to the outer
+    /// document scroll. Zero-delta phase/momentum lifecycle events count
+    /// as "not horizontal" so the outer scroll view still receives the
+    /// gesture-ended notifications it needs to stop cleanly.
     override func scrollWheel(with event: NSEvent) {
-        if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+        if abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) {
+            super.scrollWheel(with: event)
+        } else {
             nextResponder?.scrollWheel(with: event)
-            return
         }
-        super.scrollWheel(with: event)
     }
 
     /// Swap the rendered image after a restyle regenerated it.
@@ -146,6 +148,9 @@ extension NativeTextView {
         let containerWidth = container.size.width
         guard containerWidth.isFinite, containerWidth > 0 else { return }
 
+        // Settle layout before measuring — stale fragments would yield wrong anchor Ys.
+        tlm.ensureLayout(for: tlm.documentRange)
+
         var seenSourceIDs: Set<Int> = []
         let fullRange = NSRange(location: 0, length: storage.length)
 
@@ -154,7 +159,6 @@ extension NativeTextView {
                   let image = storage.attribute(.latexImage, at: attrRange.location, effectiveRange: nil) as? NSImage else { return }
             seenSourceIDs.insert(sourceID)
 
-            // Force anchor layout so boundingRect returns a real frame.
             if let start = tcs.location(tcs.documentRange.location, offsetBy: attrRange.location),
                let end = tcs.location(start, offsetBy: attrRange.length),
                let textRange = NSTextRange(location: start, end: end) {
@@ -173,7 +177,12 @@ extension NativeTextView {
             )
 
             if let existing = wideTableOverlays[sourceID] {
-                if !existing.frame.equalTo(overlayFrame) { existing.frame = overlayFrame }
+                if !existing.frame.equalTo(overlayFrame) {
+                    // Invalidate both old + new region so the vacated area redraws.
+                    self.setNeedsDisplay(existing.frame)
+                    existing.frame = overlayFrame
+                    self.setNeedsDisplay(overlayFrame)
+                }
                 existing.updateImage(image)
                 existing.anchorTextLocation = attrRange.location
             } else {
@@ -190,6 +199,7 @@ extension NativeTextView {
         }
 
         for (sourceID, overlay) in wideTableOverlays where !seenSourceIDs.contains(sourceID) {
+            self.setNeedsDisplay(overlay.frame)
             overlay.removeFromSuperview()
             wideTableOverlays.removeValue(forKey: sourceID)
         }

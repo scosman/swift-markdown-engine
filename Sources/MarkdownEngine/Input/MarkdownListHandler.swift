@@ -33,8 +33,9 @@ struct MarkdownLists {
     /// CommonMark blockquote line: ≤3 spaces of leading indent, then a run
     /// of `>` markers, then an optional single space before content. The
     /// captures are: (1) leading whitespace, (2) the `>`/`>>`… marker run.
+    /// Blockquote line: ≤3 indent + one or more `>` markers (also `> >` with spaces); group 2 captures the marker run.
     static let blockquoteRegex = try! NSRegularExpression(
-        pattern: #"^( {0,3})(>+)[ \t]?"#
+        pattern: #"^( {0,3})(>+(?:[ \t]+>+)*)"#
     )
     static let dashNoSpaceRegex = try! NSRegularExpression(pattern: #"^\s*-(?!\s)"#)
     static let numberRegex = try! NSRegularExpression(pattern: #"^\s*(\d+)\.$"#)
@@ -387,14 +388,10 @@ struct MarkdownLists {
                 }
             }
 
-            // Skip list continuation in code blocks
+            // Skip list / blockquote continuation in code blocks.
             guard listsEnabled && !isInCodeBlock else { return true }
 
-            // Blockquote continuation: mirror the bullet-list behaviour.
-            // Pressing Enter on `> foo` adds a new `> ` line at the same
-            // nesting depth (`>>>` stays `>>>`); pressing Enter on an empty
-            // marker line strips the prefix so the user can exit the quote
-            // without backspacing through it.
+            // Blockquote continuation: `> foo` → `\n> `, `>>>` stays `>>>`, empty marker → exit.
             let quoteLine = nsText.substring(with: currentLineRange)
             if let quoteMatch = MarkdownLists.blockquoteRegex.firstMatch(
                 in: quoteLine,

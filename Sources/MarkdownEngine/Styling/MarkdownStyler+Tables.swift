@@ -27,6 +27,8 @@ extension MarkdownStyler {
 
     static func styleTables(_ ctx: StylingContext) -> [StyledRange] {
         var attrs: [StyledRange] = []
+        // Per-content occurrence counter so identical tables get distinct sourceIDs.
+        var occurrenceByContentHash: [Int: Int] = [:]
         for (idx, token) in ctx.tokens.enumerated() where token.kind == .table {
             // The tokenizer already drops table matches that overlap a
             // fenced code block, so we don't re-check that here. (The
@@ -37,6 +39,11 @@ extension MarkdownStyler {
 
             let source = ctx.nsText.substring(with: token.range)
             guard let parsed = parseTableSource(source) else { continue }
+
+            // Advance occurrence index even for active tables so inactive duplicates stay stable.
+            let contentHash = stableTableContentHash(for: source)
+            let occurrenceIndex = occurrenceByContentHash[contentHash, default: 0]
+            occurrenceByContentHash[contentHash] = occurrenceIndex + 1
 
             let isActive = ctx.activeTokenIndices.contains(idx)
             if isActive {
@@ -66,11 +73,15 @@ extension MarkdownStyler {
             // Wide tables → scrollable mode (NSScrollView overlay); narrow → collapsed.
             let containerWidth = effectiveContainerWidth(for: ctx)
             let isWide = image.size.width > containerWidth + 0.5
+            let computedSourceID = stableTableSourceID(
+                for: source,
+                occurrenceIndex: occurrenceIndex
+            )
             let mode: RenderedStandaloneBlockMode = isWide
                 ? .collapsedSourceScrollable(
                     markerTexts: [],
                     displayWidth: containerWidth,
-                    sourceID: stableTableSourceID(for: source)
+                    sourceID: computedSourceID
                 )
                 : .collapsedSource(markerTexts: [])
             _ = appendRenderedStandaloneBlock(
@@ -442,11 +453,20 @@ extension MarkdownStyler {
         return 500
     }
 
-    /// Stable hash of source for overlay lookup + offset persistence.
-    static func stableTableSourceID(for source: String) -> Int {
+    /// Content-only hash; intentionally collides for identical tables — disambiguated by occurrence index.
+    static func stableTableContentHash(for source: String) -> Int {
         var hasher = Hasher()
         hasher.combine("table-overlay-v1")
         hasher.combine(source)
+        return hasher.finalize()
+    }
+
+    /// Per-instance ID = (content, nth-occurrence); stable across re-styles so scroll offsets persist.
+    static func stableTableSourceID(for source: String, occurrenceIndex: Int) -> Int {
+        var hasher = Hasher()
+        hasher.combine("table-overlay-v2")
+        hasher.combine(source)
+        hasher.combine(occurrenceIndex)
         return hasher.finalize()
     }
 }
