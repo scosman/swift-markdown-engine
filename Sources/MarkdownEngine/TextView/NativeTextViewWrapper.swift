@@ -310,6 +310,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             context.coordinator.didInitialFormatting = false
             context.coordinator.didEnsureLayoutForCurrentDocument = false
             context.coordinator.resetImageEmbedState()
+            // Drop old document's wide-table overlays synchronously.
+            (textView as? NativeTextView)?.removeAllWideTableOverlays()
             // Reset scroll to top of content so the previous file's scrollY
             // doesn't leak into a (potentially shorter) new file.
             nsView.contentView.scroll(to: NSPoint(x: 0, y: -nsView.contentInsets.top))

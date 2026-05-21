@@ -63,6 +63,16 @@ extension MarkdownStyler {
                 latex: ctx.services.latex
             )
             let imageBounds = CGRect(x: 0, y: 0, width: image.size.width, height: image.size.height)
+            // Wide tables → scrollable mode (NSScrollView overlay); narrow → collapsed.
+            let containerWidth = effectiveContainerWidth(for: ctx)
+            let isWide = image.size.width > containerWidth + 0.5
+            let mode: RenderedStandaloneBlockMode = isWide
+                ? .collapsedSourceScrollable(
+                    markerTexts: [],
+                    displayWidth: containerWidth,
+                    sourceID: stableTableSourceID(for: source)
+                )
+                : .collapsedSource(markerTexts: [])
             _ = appendRenderedStandaloneBlock(
                 for: token,
                 rawContent: source,
@@ -71,7 +81,7 @@ extension MarkdownStyler {
                 paragraphSpacingBefore: ctx.baseDefaultLineHeight * 0.5,
                 paragraphSpacing: ctx.baseDefaultLineHeight * 0.5,
                 alignment: .left,
-                mode: .collapsedSource(markerTexts: []),
+                mode: mode,
                 ctx: ctx,
                 attrs: &attrs
             )
@@ -412,5 +422,31 @@ extension MarkdownStyler {
             }
             return true
         }
+    }
+
+    // MARK: - Scrollable table helpers
+
+    /// Container width with fallback chain for "styler runs before layout" case.
+    static func effectiveContainerWidth(for ctx: StylingContext) -> CGFloat {
+        if let container = ctx.layoutBridge?.firstTextContainer {
+            let raw = container.size.width
+            if raw.isFinite, raw > 0, raw < 100_000 { return raw }
+            if let textView = container.textView {
+                let inset = textView.textContainerInset
+                let usable = textView.bounds.width - inset.width * 2
+                if usable.isFinite, usable > 0 { return usable }
+                let frameUsable = textView.frame.width - inset.width * 2
+                if frameUsable.isFinite, frameUsable > 0 { return frameUsable }
+            }
+        }
+        return 500
+    }
+
+    /// Stable hash of source for overlay lookup + offset persistence.
+    static func stableTableSourceID(for source: String) -> Int {
+        var hasher = Hasher()
+        hasher.combine("table-overlay-v1")
+        hasher.combine(source)
+        return hasher.finalize()
     }
 }

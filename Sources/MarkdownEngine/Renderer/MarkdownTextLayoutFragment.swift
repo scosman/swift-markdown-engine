@@ -21,6 +21,12 @@ extension NSAttributedString.Key {
     /// Int nesting level (1-based) of a blockquote line; the fragment
     /// paints that many vertical bars in the left gutter.
     static let blockquoteLevel = NSAttributedString.Key("BlockquoteLevel")
+    /// CGFloat — natural image width; presence flags block as overlay-rendered.
+    static let scrollableBlockNaturalWidth = NSAttributedString.Key("ScrollableBlockNaturalWidth")
+    /// Int — hash of source text; key for overlay reconcile + offset persistence.
+    static let scrollableBlockSourceID = NSAttributedString.Key("ScrollableBlockSourceID")
+    /// CGFloat — total reserved height (image + scroller strip) for overlay sizing.
+    static let scrollableBlockTotalHeight = NSAttributedString.Key("ScrollableBlockTotalHeight")
 }
 
 final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
@@ -29,6 +35,9 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
     /// shared so the styler's text indent and the painted bars line up.
     static let blockquoteIndentPerLevel: CGFloat = 18
     static let blockquoteBarWidth: CGFloat = 3
+
+    /// Strip below an overlay block for the legacy-small scroller (~11pt) + buffer.
+    static let scrollableBlockScrollerStrip: CGFloat = 14
 
     // MARK: - FB15131180
 
@@ -318,6 +327,10 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
             guard value is NSImage else { return }
             let isBlock = ts.attribute(.latexIsBlock, at: attrRange.location, effectiveRange: nil) as? Bool ?? false
             guard isBlock else { return }
+            // Skip overlay blocks; surface bounds must stay within container.
+            if ts.attribute(.scrollableBlockNaturalWidth, at: attrRange.location, effectiveRange: nil) != nil {
+                return
+            }
             let boundsVal = ts.attribute(.latexBounds, at: attrRange.location, effectiveRange: nil) as? NSValue
             let imageBounds = boundsVal?.rectValue ?? .zero
             let blockOffsetY = ts.attribute(.latexBlockOffsetY, at: attrRange.location, effectiveRange: nil) as? CGFloat
@@ -340,6 +353,11 @@ final class MarkdownTextLayoutFragment: NSTextLayoutFragment {
 
         ts.enumerateAttribute(.latexImage, in: range, options: []) { [weak self] value, attrRange, _ in
             guard let self, let image = value as? NSImage else { return }
+
+            // Skip overlay-rendered blocks; WideTableOverlay owns the visual.
+            if ts.attribute(.scrollableBlockNaturalWidth, at: attrRange.location, effectiveRange: nil) != nil {
+                return
+            }
 
             let boundsVal = ts.attribute(.latexBounds, at: attrRange.location, effectiveRange: nil) as? NSValue
             let imageBounds = boundsVal?.rectValue ?? CGRect(origin: .zero, size: image.size)

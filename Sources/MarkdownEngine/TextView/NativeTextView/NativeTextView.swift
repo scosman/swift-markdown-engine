@@ -48,6 +48,12 @@ final class NativeTextView: NSTextView {
     // MARK: Drag-select state
     var dragStartMouseScreenLoc: NSPoint?
 
+    // MARK: Wide-table overlay state
+    /// Live NSScrollView per wide table; keyed by source-ID hash.
+    var wideTableOverlays: [Int: WideTableOverlay] = [:]
+    /// Persisted horizontal scroll offset per wide table; survives restyles.
+    var tableHorizontalScrollOffsets: [Int: CGFloat] = [:]
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // Forward appearance changes to the embedder-supplied syntax highlighter

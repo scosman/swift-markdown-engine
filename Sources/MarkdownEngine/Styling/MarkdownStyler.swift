@@ -195,6 +195,12 @@ extension MarkdownStyler {
     enum RenderedStandaloneBlockMode {
         case collapsedSource(markerTexts: [String])
         case visibleSource(imageGap: CGFloat)
+        /// Wide-table mode: anchor reserves container width, line gains scroller strip, tagged by sourceID.
+        case collapsedSourceScrollable(
+            markerTexts: [String],
+            displayWidth: CGFloat,
+            sourceID: Int
+        )
     }
 
     static func appendRenderedStandaloneBlock(
@@ -218,91 +224,44 @@ extension MarkdownStyler {
 
         switch mode {
         case .collapsedSource(let markerTexts):
-            let neededHeight = max(para.minimumLineHeight, imageBounds.height, baseLineHeight)
-            para.minimumLineHeight = neededHeight
-            para.maximumLineHeight = max(para.maximumLineHeight, neededHeight)
-            para.paragraphSpacing = max(para.paragraphSpacing, paragraphSpacing)
-            // The anchor character is given an explicit advance equal to the
-            // image width (often wider than the text container
-            para.lineBreakMode = .byClipping
-            let collapsedPara = NSMutableParagraphStyle()
-            collapsedPara.maximumLineHeight = 1
-            collapsedPara.paragraphSpacing = 0
-            collapsedPara.paragraphSpacingBefore = 0
+            emitCollapsedAttrs(
+                token: token,
+                rawContent: rawContent,
+                image: image,
+                imageBounds: imageBounds,
+                paragraphSpacing: paragraphSpacing,
+                para: para,
+                paraRange: paraRange,
+                advanceWidth: imageBounds.width,
+                neededLineHeight: imageBounds.height,
+                extraAnchorAttrs: [:],
+                markerTexts: markerTexts,
+                ctx: ctx,
+                attrs: &attrs
+            )
 
-            let leadingWhitespaceUnits = rawContent.utf16.prefix { codeUnit in
-                guard let scalar = UnicodeScalar(UInt32(codeUnit)) else { return false }
-                return CharacterSet.whitespacesAndNewlines.contains(scalar)
-            }.count
-            let contentEnd = NSMaxRange(token.contentRange)
-            let anchorLocation = min(token.contentRange.location + leadingWhitespaceUnits, contentEnd - 1)
-
-            var paragraphAttributes: [StyledRange] = []
-            ctx.nsText.enumerateSubstrings(in: paraRange, options: .byParagraphs) { _, _, enclosingRange, _ in
-                if NSLocationInRange(anchorLocation, enclosingRange) {
-                    paragraphAttributes.append((enclosingRange, [.paragraphStyle: para]))
-                } else {
-                    paragraphAttributes.append((enclosingRange, [.paragraphStyle: collapsedPara]))
-                }
-            }
-            attrs.append(contentsOf: paragraphAttributes)
-
-            if leadingWhitespaceUnits > 0 {
-                let leadingRange = NSRange(location: token.contentRange.location, length: leadingWhitespaceUnits)
-                let leadingText = ctx.nsText.substring(with: leadingRange)
-                attrs.append((leadingRange, [
-                    .foregroundColor: NSColor.clear,
-                    .font: ctx.latexMarkerFont,
-                    .kern: -HeadingHelpers.textWidth(leadingText, font: ctx.latexMarkerFont)
-                ]))
-            }
-
-            let anchorRange = NSRange(location: anchorLocation, length: 1)
-            let anchorChar = ctx.nsText.substring(with: anchorRange)
-            attrs.append((anchorRange, [
-                .latexImage: image,
-                .latexBounds: NSValue(rect: imageBounds),
-                .latexIsBlock: true,
-                .foregroundColor: NSColor.clear,
-                .font: ctx.latexMarkerFont,
-                .kern: imageBounds.width - HeadingHelpers.textWidth(anchorChar, font: ctx.latexMarkerFont)
-            ]))
-
-            let trailingStart = anchorLocation + 1
-            let trailingLength = contentEnd - trailingStart
-            if trailingLength > 0 {
-                let trailingRange = NSRange(location: trailingStart, length: trailingLength)
-                let trailingText = ctx.nsText.substring(with: trailingRange)
-                attrs.append((trailingRange, [
-                    .foregroundColor: NSColor.clear,
-                    .font: ctx.latexMarkerFont,
-                    .kern: -HeadingHelpers.textWidth(trailingText, font: ctx.latexMarkerFont)
-                ]))
-            }
-
-            for (index, markerRange) in token.markerRanges.enumerated() {
-                let markerText = markerTexts.indices.contains(index)
-                    ? markerTexts[index]
-                    : ctx.nsText.substring(with: markerRange)
-                attrs.append((markerRange, [
-                    .foregroundColor: NSColor.clear,
-                    .font: ctx.latexMarkerFont,
-                    .kern: -HeadingHelpers.textWidth(markerText, font: ctx.latexMarkerFont)
-                ]))
-            }
-
-            // Hide whitespace between paragraph start and token start
-            // (e.g. a space before "![[") so it doesn't affect line layout.
-            let preTokenLength = token.range.location - paraRange.location
-            if preTokenLength > 0 {
-                let preTokenRange = NSRange(location: paraRange.location, length: preTokenLength)
-                let preTokenText = ctx.nsText.substring(with: preTokenRange)
-                attrs.append((preTokenRange, [
-                    .foregroundColor: NSColor.clear,
-                    .font: ctx.latexMarkerFont,
-                    .kern: -HeadingHelpers.textWidth(preTokenText, font: ctx.latexMarkerFont)
-                ]))
-            }
+        case .collapsedSourceScrollable(let markerTexts, let displayWidth, let sourceID):
+            let scrollerStrip = MarkdownTextLayoutFragment.scrollableBlockScrollerStrip
+            let totalHeight = imageBounds.height + scrollerStrip
+            emitCollapsedAttrs(
+                token: token,
+                rawContent: rawContent,
+                image: image,
+                imageBounds: imageBounds,
+                paragraphSpacing: paragraphSpacing,
+                para: para,
+                paraRange: paraRange,
+                advanceWidth: displayWidth,
+                neededLineHeight: totalHeight,
+                extraAnchorAttrs: [
+                    .scrollableBlockNaturalWidth: imageBounds.width,
+                    .scrollableBlockSourceID: sourceID,
+                    .scrollableBlockTotalHeight: totalHeight
+                ],
+                markerTexts: markerTexts,
+                ctx: ctx,
+                attrs: &attrs
+            )
 
         case .visibleSource(let imageGap):
             para.minimumLineHeight = max(para.minimumLineHeight, baseLineHeight)
@@ -320,6 +279,109 @@ extension MarkdownStyler {
         }
 
         return true
+    }
+
+    /// Shared body for collapsed-source modes; hides raw source, plants image on anchor.
+    private static func emitCollapsedAttrs(
+        token: MarkdownToken,
+        rawContent: String,
+        image: NSImage,
+        imageBounds: CGRect,
+        paragraphSpacing: CGFloat,
+        para: NSMutableParagraphStyle,
+        paraRange: NSRange,
+        advanceWidth: CGFloat,
+        neededLineHeight: CGFloat,
+        extraAnchorAttrs: [NSAttributedString.Key: Any],
+        markerTexts: [String],
+        ctx: StylingContext,
+        attrs: inout [StyledRange]
+    ) {
+        let baseLineHeight = layoutBridgeDefaultLineHeight(for: ctx.baseFont, using: ctx.layoutBridge)
+        let resolved = max(para.minimumLineHeight, neededLineHeight, baseLineHeight)
+        para.minimumLineHeight = resolved
+        para.maximumLineHeight = max(para.maximumLineHeight, resolved)
+        para.paragraphSpacing = max(para.paragraphSpacing, paragraphSpacing)
+        para.lineBreakMode = .byClipping
+
+        let collapsedPara = NSMutableParagraphStyle()
+        collapsedPara.maximumLineHeight = 1
+        collapsedPara.paragraphSpacing = 0
+        collapsedPara.paragraphSpacingBefore = 0
+
+        let leadingWhitespaceUnits = rawContent.utf16.prefix { codeUnit in
+            guard let scalar = UnicodeScalar(UInt32(codeUnit)) else { return false }
+            return CharacterSet.whitespacesAndNewlines.contains(scalar)
+        }.count
+        let contentEnd = NSMaxRange(token.contentRange)
+        let anchorLocation = min(token.contentRange.location + leadingWhitespaceUnits, contentEnd - 1)
+
+        var paragraphAttributes: [StyledRange] = []
+        ctx.nsText.enumerateSubstrings(in: paraRange, options: .byParagraphs) { _, _, enclosingRange, _ in
+            if NSLocationInRange(anchorLocation, enclosingRange) {
+                paragraphAttributes.append((enclosingRange, [.paragraphStyle: para]))
+            } else {
+                paragraphAttributes.append((enclosingRange, [.paragraphStyle: collapsedPara]))
+            }
+        }
+        attrs.append(contentsOf: paragraphAttributes)
+
+        if leadingWhitespaceUnits > 0 {
+            let leadingRange = NSRange(location: token.contentRange.location, length: leadingWhitespaceUnits)
+            let leadingText = ctx.nsText.substring(with: leadingRange)
+            attrs.append((leadingRange, [
+                .foregroundColor: NSColor.clear,
+                .font: ctx.latexMarkerFont,
+                .kern: -HeadingHelpers.textWidth(leadingText, font: ctx.latexMarkerFont)
+            ]))
+        }
+
+        let anchorRange = NSRange(location: anchorLocation, length: 1)
+        let anchorChar = ctx.nsText.substring(with: anchorRange)
+        var anchorAttrs: [NSAttributedString.Key: Any] = [
+            .latexImage: image,
+            .latexBounds: NSValue(rect: imageBounds),
+            .latexIsBlock: true,
+            .foregroundColor: NSColor.clear,
+            .font: ctx.latexMarkerFont,
+            .kern: advanceWidth - HeadingHelpers.textWidth(anchorChar, font: ctx.latexMarkerFont)
+        ]
+        for (key, value) in extraAnchorAttrs { anchorAttrs[key] = value }
+        attrs.append((anchorRange, anchorAttrs))
+
+        let trailingStart = anchorLocation + 1
+        let trailingLength = contentEnd - trailingStart
+        if trailingLength > 0 {
+            let trailingRange = NSRange(location: trailingStart, length: trailingLength)
+            let trailingText = ctx.nsText.substring(with: trailingRange)
+            attrs.append((trailingRange, [
+                .foregroundColor: NSColor.clear,
+                .font: ctx.latexMarkerFont,
+                .kern: -HeadingHelpers.textWidth(trailingText, font: ctx.latexMarkerFont)
+            ]))
+        }
+
+        for (index, markerRange) in token.markerRanges.enumerated() {
+            let markerText = markerTexts.indices.contains(index)
+                ? markerTexts[index]
+                : ctx.nsText.substring(with: markerRange)
+            attrs.append((markerRange, [
+                .foregroundColor: NSColor.clear,
+                .font: ctx.latexMarkerFont,
+                .kern: -HeadingHelpers.textWidth(markerText, font: ctx.latexMarkerFont)
+            ]))
+        }
+
+        let preTokenLength = token.range.location - paraRange.location
+        if preTokenLength > 0 {
+            let preTokenRange = NSRange(location: paraRange.location, length: preTokenLength)
+            let preTokenText = ctx.nsText.substring(with: preTokenRange)
+            attrs.append((preTokenRange, [
+                .foregroundColor: NSColor.clear,
+                .font: ctx.latexMarkerFont,
+                .kern: -HeadingHelpers.textWidth(preTokenText, font: ctx.latexMarkerFont)
+            ]))
+        }
     }
 }
 

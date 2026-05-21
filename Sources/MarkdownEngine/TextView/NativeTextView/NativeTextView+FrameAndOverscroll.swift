@@ -119,6 +119,13 @@ extension NativeTextView {
         }
 
         recalcOverscroll(for: scrollView, targetWidth: newSize.width, debugTag: "setFrameSize")
+
+        // Reposition wide-table overlays when container width changes.
+        if widthChanged {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateWideTableOverlays()
+            }
+        }
     }
 
     override func scrollRangeToVisible(_ range: NSRange) {

@@ -87,6 +87,13 @@ extension NativeTextViewCoordinator {
             }
             tlm.ensureLayout(for: tlm.documentRange)
         }
+
+        // Reconcile wide-table overlays after layout settles.
+        if let nativeTextView = textView as? NativeTextView {
+            DispatchQueue.main.async { [weak nativeTextView] in
+                nativeTextView?.updateWideTableOverlays()
+            }
+        }
     }
 
     func restyleTextView(
@@ -115,6 +122,12 @@ extension NativeTextViewCoordinator {
             precomputedTokens: tokens,
             configuration: configuration
         )
+        // Reconcile wide-table overlays after layout settles.
+        if let nativeTextView = textView as? NativeTextView {
+            DispatchQueue.main.async { [weak nativeTextView] in
+                nativeTextView?.updateWideTableOverlays()
+            }
+        }
     }
 
     func parsedDocument(for text: String) -> ParsedDocument {
