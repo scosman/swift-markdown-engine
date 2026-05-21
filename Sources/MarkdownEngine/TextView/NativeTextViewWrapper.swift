@@ -270,19 +270,14 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             context.coordinator.lastImageFingerprint = newImageFingerprint
             context.coordinator.configuration.services = configuration.services
             (nsView.documentView as? NativeTextView)?.configuration.services = configuration.services
-            // Force the rest of updateNSView to re-run styling — without this
-            // the early-return below short-circuits when text/font are
-            // unchanged, and a freshly fetched async image (the typical
-            // fingerprint trigger) would never get drawn.
-            context.coordinator.didInitialFormatting = false
-            // TextKit 2 caches layout fragments and only auto-invalidates on
-            // text changes. Custom image attributes (`.latexImage`,
-            // `.latexIsBlock`, …) won't trip the layout pass on their own,
-            // so the cached `renderingSurfaceBounds` would still reflect a
-            // pre-image height. Force a layout invalidation to pick up the
-            // new image rects when re-styling re-attaches them.
+            // Invalidate layout so custom image attributes re-measure.
             if let tlm = textView.textLayoutManager {
                 tlm.invalidateLayout(for: tlm.documentRange)
+            }
+            // Restyle live tv content — full rebuild would clobber paste-fresh embeds when `text` binding hasn't caught up.
+            let fullRange = NSRange(location: 0, length: (textView.string as NSString).length)
+            if fullRange.length > 0 {
+                context.coordinator.restyleParagraphs([fullRange], in: textView)
             }
         }
         textView.isEditable = isEditable

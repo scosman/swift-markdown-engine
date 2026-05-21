@@ -418,9 +418,12 @@ extension MarkdownStyler {
             if token.kind == .codeBlock || token.kind == .inlineCode || token.kind == .inlineLatex || token.kind == .imageEmbed {
                 continue
             }
-            if MarkdownDetection.isInsideCodeBlock(range: token.range, codeTokens: ctx.codeTokens) {
-                continue
+            // Containment, not overlap — so a strike that wraps inline code isn't skipped.
+            let isFullyInsideCode = ctx.codeTokens.contains { codeToken in
+                token.range.location >= codeToken.range.location
+                    && NSMaxRange(token.range) <= NSMaxRange(codeToken.range)
             }
+            if isFullyInsideCode { continue }
             let smallSize = ctx.configuration.markers.hiddenMarkerFontSize
             let smallFont = NSFont(name: ctx.fontName, size: smallSize) ?? NSFont.systemFont(ofSize: smallSize)
             if token.kind == .link && token.markerRanges.count >= 4 {
