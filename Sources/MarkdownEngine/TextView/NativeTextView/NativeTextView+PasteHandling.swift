@@ -26,7 +26,20 @@ extension NativeTextView {
             return
         }
 
-        if let pasted = pasteboard.string(forType: .string) {
+        // Recover HTML tables only when plain text lacks table delimiters —
+        // otherwise the source already provided a usable text representation.
+        let plain = pasteboard.string(forType: .string)
+        let plainHasTableSep = plain.map { $0.contains("|") || $0.contains("\t") } ?? false
+
+        if !plainHasTableSep,
+           let html = pasteboard.string(forType: .html),
+           html.range(of: "<table", options: .caseInsensitive) != nil,
+           let markdownTable = Self.htmlTableToMarkdown(html) {
+            insertText(markdownTable, replacementRange: selectedRange())
+            return
+        }
+
+        if let pasted = plain {
             let sanitized = sanitizePastedText(pasted)
             if !sanitized.isEmpty {
                 insertText(sanitized, replacementRange: selectedRange())
@@ -88,5 +101,73 @@ extension NativeTextView {
             if textFromPastedFileURL(pasteboard: pasteboard) != nil { return true }
         }
         return super.validateUserInterfaceItem(item)
+    }
+
+    // MARK: - HTML table → Markdown table
+
+    private static let trRegex = try! NSRegularExpression(
+        pattern: #"<tr\b[^>]*>(.*?)</tr>"#,
+        options: [.dotMatchesLineSeparators, .caseInsensitive]
+    )
+    private static let cellRegex = try! NSRegularExpression(
+        pattern: #"<t[hd]\b[^>]*>(.*?)</t[hd]>"#,
+        options: [.dotMatchesLineSeparators, .caseInsensitive]
+    )
+    private static let tagStripRegex = try! NSRegularExpression(
+        pattern: #"<[^>]+>"#
+    )
+
+    /// First `<table>` in `html` → CommonMark pipe-table; nil if no table.
+    static func htmlTableToMarkdown(_ html: String) -> String? {
+        guard html.range(of: "<table", options: .caseInsensitive) != nil else { return nil }
+        let nsHtml = html as NSString
+        let trMatches = trRegex.matches(in: html, range: NSRange(location: 0, length: nsHtml.length))
+        guard !trMatches.isEmpty else { return nil }
+
+        var rows: [[String]] = []
+        for trMatch in trMatches {
+            let trContent = nsHtml.substring(with: trMatch.range(at: 1))
+            let nsTr = trContent as NSString
+            let cellMatches = cellRegex.matches(in: trContent, range: NSRange(location: 0, length: nsTr.length))
+            var cells: [String] = []
+            for cellMatch in cellMatches {
+                let raw = nsTr.substring(with: cellMatch.range(at: 1))
+                let nsRaw = raw as NSString
+                let stripped = tagStripRegex.stringByReplacingMatches(
+                    in: raw, range: NSRange(location: 0, length: nsRaw.length), withTemplate: ""
+                )
+                let decoded = decodeHTMLEntities(stripped)
+                    .replacingOccurrences(of: "|", with: #"\|"#)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                cells.append(decoded)
+            }
+            if !cells.isEmpty { rows.append(cells) }
+        }
+        guard !rows.isEmpty else { return nil }
+
+        let columnCount = rows.map(\.count).max() ?? 0
+        guard columnCount > 0 else { return nil }
+        func pad(_ row: [String]) -> [String] {
+            row + Array(repeating: "", count: max(0, columnCount - row.count))
+        }
+
+        var lines: [String] = []
+        lines.append("| " + pad(rows[0]).joined(separator: " | ") + " |")
+        lines.append("|" + Array(repeating: "---", count: columnCount).joined(separator: "|") + "|")
+        for row in rows.dropFirst() {
+            lines.append("| " + pad(row).joined(separator: " | ") + " |")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func decodeHTMLEntities(_ s: String) -> String {
+        s.replacingOccurrences(of: "&amp;", with: "&")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
     }
 }
