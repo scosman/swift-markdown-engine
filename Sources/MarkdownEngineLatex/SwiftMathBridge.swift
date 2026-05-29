@@ -144,25 +144,45 @@ public final class SwiftMathBridge: LatexRenderer, @unchecked Sendable {
 
         let isSimpleSingleLetter = latex.range(of: #"^[A-Za-z]{1,3}$"#, options: .regularExpression) != nil
         let paddingBottom: CGFloat = isSimpleSingleLetter ? singleLetterPaddingBottom : 0
+        let canvasHeight = exactHeight + paddingBottom
 
-        let frameSize = CGSize(
-            width: ceil(exactWidth),
-            height: exactHeight + paddingBottom
-        )
-        mathLabel.frame = CGRect(origin: .zero, size: frameSize)
+        // `displayList.width` is the advance width, which excludes the right-side ink
+        // overhang of slanted glyphs (V, Y, P, F, …) — cropping to it clips them.
+        // Render with right slack, then crop to the measured ink edge.
+        let rightSlack = ceil(fontSize)
+        let probeWidth = ceil(exactWidth) + rightSlack
 
-        guard let image = renderLabelToImage(mathLabel, size: frameSize) else {
+        guard let probeRep = renderLabelToRep(mathLabel, size: CGSize(width: probeWidth, height: canvasHeight)),
+              let probeCG = probeRep.cgImage else {
             return nil
         }
 
+        let inkRight = Self.inkRightEdge(probeCG, widthInPoints: probeWidth) ?? exactWidth
+        let finalWidth = max(ceil(exactWidth), ceil(inkRight))
+        let finalSize = CGSize(width: finalWidth, height: canvasHeight)
+
+        // Crop to the measured width (full height kept); points→pixels via the rep,
+        // so this is correct at any backing scale.
+        let pxPerPoint = CGFloat(probeCG.width) / probeWidth
+        let cropPx = min(probeCG.width, Int((finalWidth * pxPerPoint).rounded()))
+        guard cropPx > 0,
+              let croppedCG = probeCG.cropping(to: CGRect(x: 0, y: 0, width: cropPx, height: probeCG.height)) else {
+            return nil
+        }
+
+        let finalRep = NSBitmapImageRep(cgImage: croppedCG)
+        finalRep.size = finalSize
+        let image = NSImage(size: finalSize)
+        image.addRepresentation(finalRep)
+
         return CacheEntry(
             image: image,
-            size: frameSize,
+            size: finalSize,
             baselineOffset: displayList.descent
         )
     }
 
-    private func renderLabelToImage(_ label: MTMathUILabel, size: CGSize) -> NSImage? {
+    private func renderLabelToRep(_ label: MTMathUILabel, size: CGSize) -> NSBitmapImageRep? {
         // `bitmapImageRepForCachingDisplay` + `cacheDisplay(in:to:)` is the
         // documented way to snapshot an NSView that isn't in a window. Setting
         // `wantsLayer = true` and `layer.render(in:)` snapshots the (empty)
@@ -170,11 +190,43 @@ public final class SwiftMathBridge: LatexRenderer, @unchecked Sendable {
         label.frame = CGRect(origin: .zero, size: size)
         label.layoutSubtreeIfNeeded()
 
-        let image = NSImage(size: size)
-        if let rep = label.bitmapImageRepForCachingDisplay(in: label.bounds) {
-            label.cacheDisplay(in: label.bounds, to: rep)
-            image.addRepresentation(rep)
+        guard let rep = label.bitmapImageRepForCachingDisplay(in: label.bounds) else { return nil }
+        label.cacheDisplay(in: label.bounds, to: rep)
+        return rep
+    }
+
+    /// Right-most x (in points) containing non-transparent ink, or `nil` if empty —
+    /// lets us crop a formula to its true ink width instead of the advance width.
+    private static func inkRightEdge(_ image: CGImage, widthInPoints: CGFloat) -> CGFloat? {
+        let w = image.width
+        let h = image.height
+        guard w > 0, h > 0, widthInPoints > 0 else { return nil }
+
+        let bytesPerRow = w * 4
+        var data = [UInt8](repeating: 0, count: bytesPerRow * h)
+        guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: &data, width: w, height: h, bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow, space: cs,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
         }
-        return image
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        // Scan each row from the right, stopping once we pass the running max.
+        var maxX = -1
+        for y in 0..<h {
+            let row = y * bytesPerRow
+            var x = w - 1
+            while x > maxX {
+                if data[row + x * 4 + 3] > 10 { maxX = x; break }
+                x -= 1
+            }
+        }
+        guard maxX >= 0 else { return nil }
+
+        // +1: pixel `maxX` spans [maxX, maxX+1). Convert to points.
+        return (CGFloat(maxX) + 1) * widthInPoints / CGFloat(w)
     }
 }
