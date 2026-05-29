@@ -149,7 +149,7 @@ extension MarkdownStyler {
             if t == boldBit | italicBit {
                 font = headingAwareBoldItalic(in: ctx, contentLocation: i) ?? regularBoldItalic
             } else if t == boldBit {
-                font = regularBold
+                font = headingAwareBold(in: ctx, contentLocation: i) ?? regularBold
             } else {
                 font = headingAwareBoldItalic(in: ctx, contentLocation: i) ?? regularItalic
             }
@@ -200,5 +200,22 @@ extension MarkdownStyler {
         let desc = headingBase.fontDescriptor.withSymbolicTraits([.bold, .italic])
         return NSFont(descriptor: desc, size: headingBase.pointSize)
             ?? NSFontManager.shared.convert(headingBase, toHaveTrait: [.boldFontMask, .italicFontMask])
+    }
+
+    /// Returns a heading-sized bold font when the location sits inside a heading,
+    /// else `nil` so a pure-bold run mid-line keeps the base size. Without this,
+    /// `**bold**` inside a heading shrinks to base size (the heading font set by
+    /// `styleHeadings` is overwritten by `regularBold`).
+    private static func headingAwareBold(in ctx: StylingContext, contentLocation: Int) -> NSFont? {
+        guard let headingToken = ctx.tokens.first(where: {
+            $0.kind == .heading && NSLocationInRange(contentLocation, $0.contentRange)
+        }) else { return nil }
+        let level = headingToken.markerRanges.first?.length ?? 1
+        let multiplier = ctx.configuration.headings.fontMultiplier(for: level)
+        let headingBase = NSFont(name: ctx.fontName, size: ctx.baseFont.pointSize * multiplier)
+            ?? NSFont.systemFont(ofSize: ctx.baseFont.pointSize * multiplier)
+        let desc = headingBase.fontDescriptor.withSymbolicTraits(.bold)
+        return NSFont(descriptor: desc, size: headingBase.pointSize)
+            ?? NSFontManager.shared.convert(headingBase, toHaveTrait: .boldFontMask)
     }
 }
