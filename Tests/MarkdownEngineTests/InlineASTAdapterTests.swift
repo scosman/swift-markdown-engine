@@ -2,9 +2,8 @@
 //  InlineASTAdapterTests.swift
 //  MarkdownEngineTests
 //
-//  Phase 2.5 — verifies the inline-AST → token adapter against the legacy
-//  tokenizer as an oracle for unchanged inline constructs, plus the intended
-//  divergences (the bug fixes).
+//  Phase 2.5 — verifies the inline-AST → token adapter: the intended
+//  divergences from the (now-removed) legacy inline tokenizer, i.e. the bug fixes.
 //
 
 import Foundation
@@ -13,23 +12,6 @@ import Testing
 
 @Suite("Phase 2.5 — inline AST → token adapter")
 struct InlineASTAdapterTests {
-
-    /// For inline inputs whose behavior is unchanged, the adapter output must
-    /// match the legacy tokenizer exactly (position-normalized via tokenSnapshot).
-    @Test("adapter matches legacy tokenizer for unchanged inline constructs", arguments: [
-        "plain text with no markup",
-        "**x**", "*y*", "***z***", "_u_", "__v__",
-        "~~s~~", "`c`", "`` `tick` ``",
-        "[a](b)", "[text](https://example.com)",
-        "[[N]]", "[[N|id]]", "![[E]]", "![a](b)",
-        "$x+y$", "**a *b* c**", "a *b* and `c` and [d](e)",
-    ])
-    func matchesLegacy(_ input: String) {
-        let viaAdapter = InlineASTAdapter.tokens(from: InlineParser.parse(input))
-        let legacy = MarkdownTokenizer.parseTokens(in: input)
-        #expect(tokenSnapshot(viaAdapter, in: input) == tokenSnapshot(legacy, in: input),
-                "adapter/legacy mismatch for '\(input)'")
-    }
 
     // MARK: - Intended divergences (bug fixes)
 

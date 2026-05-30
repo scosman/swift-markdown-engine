@@ -62,7 +62,7 @@ struct MarkdownEngineDecouplingTests {
     // MARK: Tokenizer remains pure
 
     @Test func tokenizerParsesBoldEmphasisAndCode() {
-        let tokens = MarkdownTokenizer.parseTokens(in: "**bold** *italic* `code`")
+        let tokens = MarkdownTokenizer.parseTokensViaAST(in:"**bold** *italic* `code`")
         let kinds = tokens.map(\.kind)
         #expect(kinds.contains(.bold))
         #expect(kinds.contains(.italic))
@@ -70,7 +70,7 @@ struct MarkdownEngineDecouplingTests {
     }
 
     @Test func tokenizerParsesStrikethrough() {
-        let tokens = MarkdownTokenizer.parseTokens(in: "before ~~deleted~~ after")
+        let tokens = MarkdownTokenizer.parseTokensViaAST(in:"before ~~deleted~~ after")
         let strike = tokens.first { $0.kind == .strikethrough }
         #expect(strike != nil)
         #expect(strike?.markerRanges.count == 2)
@@ -79,7 +79,7 @@ struct MarkdownEngineDecouplingTests {
     }
 
     @Test func tokenizerDoesNotMatchTripleTilde() {
-        let tokens = MarkdownTokenizer.parseTokens(in: "~~~not strikethrough~~~")
+        let tokens = MarkdownTokenizer.parseTokensViaAST(in:"~~~not strikethrough~~~")
         #expect(!tokens.contains { $0.kind == .strikethrough })
     }
 

@@ -36,14 +36,27 @@ enum MarkdownASTStyler {
         let codeFontSize = round(fontSize * configuration.codeBlock.fontSizeScale)
         let hiddenSize = configuration.markers.hiddenMarkerFontSize
         let ns = text as NSString
+        let codeFont = configuration.services.syntaxHighlighter.codeFont(size: codeFontSize)
+        let codeLineHeight = ceil(codeFont.ascender - codeFont.descender + codeFont.leading)
+        let codePara = NSMutableParagraphStyle()
+        codePara.lineBreakMode = .byCharWrapping
+        codePara.lineSpacing = 0
+        codePara.paragraphSpacingBefore = configuration.codeBlock.paragraphSpacing
+        codePara.paragraphSpacing = configuration.codeBlock.paragraphSpacing
+        codePara.headIndent = configuration.codeBlock.horizontalIndent
+        codePara.firstLineHeadIndent = configuration.codeBlock.horizontalIndent
+        codePara.tailIndent = -configuration.codeBlock.horizontalIndent
+        codePara.minimumLineHeight = codeLineHeight
+        codePara.maximumLineHeight = codeLineHeight
         let ctx = Ctx(
             ns: ns,
             fontName: fontName,
             baseFont: baseFont,
             baseLineHeight: baseLineHeight,
             baseParagraphSpacing: baseParagraphSpacing,
-            codeFont: configuration.services.syntaxHighlighter.codeFont(size: codeFontSize),
+            codeFont: codeFont,
             codeBackground: configuration.services.syntaxHighlighter.backgroundColor(),
+            codeParagraphStyle: codePara,
             inlineMarkerFont: NSFont(name: fontName, size: hiddenSize) ?? .systemFont(ofSize: hiddenSize),
             caret: caretLocation,
             config: configuration,
@@ -63,7 +76,126 @@ enum MarkdownASTStyler {
             styleBlock(block, font: baseFont, ctx: ctx, into: &attrs)
         }
         shrinkInactiveMarkers(in: blocks, ctx: ctx, into: &attrs)
+
+        // Text/regex-based passes (AST-agnostic). Code ranges from the AST are
+        // used for the "skip inside code" checks instead of token scanning.
+        let codeRanges = collectCodeRanges(in: blocks)
+        styleTaskCheckboxes(ctx: ctx, codeRanges: codeRanges, into: &attrs)
+        styleBulletMarkers(ctx: ctx, codeRanges: codeRanges, into: &attrs)
+        styleAutoLinks(ctx: ctx, codeRanges: codeRanges, into: &attrs)
+        styleIncompleteLinkBrackets(ctx: ctx, codeRanges: codeRanges, into: &attrs)
         return attrs
+    }
+
+    // MARK: - Text/regex-based passes (ported 1:1, AST-agnostic)
+
+    private static func collectCodeRanges(in blocks: [BlockNode]) -> [NSRange] {
+        var ranges: [NSRange] = []
+        func walk(_ nodes: [InlineNode]) {
+            for node in nodes {
+                switch node {
+                case .code(let range, _): ranges.append(range)
+                case .emphasis(_, _, _, let children), .strikethrough(_, _, let children),
+                     .link(_, _, _, _, let children): walk(children)
+                default: break
+                }
+            }
+        }
+        for block in blocks {
+            switch block {
+            case .codeBlock(let range): ranges.append(range)
+            case .paragraph(_, let inlines), .heading(_, _, _, let inlines), .blockquote(_, let inlines):
+                walk(inlines)
+            default: break
+            }
+        }
+        return ranges
+    }
+
+    private static func isInCode(_ range: NSRange, _ codeRanges: [NSRange]) -> Bool {
+        codeRanges.contains { NSIntersectionRange($0, range).length > 0 }
+    }
+
+    private static func regex(_ pattern: String, _ anchored: Bool = true) -> NSRegularExpression? {
+        try? NSRegularExpression(pattern: pattern, options: anchored ? [.anchorsMatchLines] : [])
+    }
+
+    private static func styleTaskCheckboxes(ctx: Ctx, codeRanges: [NSRange], into attrs: inout [StyledRange]) {
+        guard let re = regex(#"^([ \t]*)([-•]|\d+\.)([ \t]+)(\[[ xX]\])(?=[ \t])"#) else { return }
+        for m in re.matches(in: ctx.text, options: [], range: ctx.fullRange) {
+            let markerR = m.range(at: 2), spacerR = m.range(at: 3), boxR = m.range(at: 4)
+            guard boxR.location != NSNotFound, !isInCode(boxR, codeRanges) else { continue }
+            // Caret editing the checkbox syntax → leave raw.
+            let syntax = NSRange(location: markerR.location, length: NSMaxRange(boxR) - markerR.location)
+            if NSLocationInRange(ctx.caret, syntax) || ctx.caret == NSMaxRange(boxR) { continue }
+            let checked = ctx.ns.substring(with: boxR).range(of: "[x]", options: .caseInsensitive) != nil
+            attrs.append((markerR, [.foregroundColor: NSColor.clear]))
+            attrs.append((spacerR, [.foregroundColor: NSColor.clear]))
+            attrs.append((boxR, [.taskCheckbox: checked, .foregroundColor: NSColor.clear]))
+            if checked {
+                let lineEnd = NSMaxRange(ctx.ns.lineRange(for: boxR))
+                let contentStart = NSMaxRange(boxR)
+                if lineEnd > contentStart {
+                    attrs.append((NSRange(location: contentStart, length: lineEnd - contentStart), [
+                        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                        .strikethroughColor: ctx.theme.strikethroughColor,
+                    ]))
+                }
+            }
+        }
+    }
+
+    private static func styleBulletMarkers(ctx: Ctx, codeRanges: [NSRange], into attrs: inout [StyledRange]) {
+        guard ctx.config.lists.helpersEnabled, let re = regex(#"^([ \t]*)([-*+])([ \t]+)(?!\[[ xX]\])"#) else { return }
+        for m in re.matches(in: ctx.text, options: [], range: ctx.fullRange) {
+            let markerR = m.range(at: 2)
+            guard markerR.location != NSNotFound, !isInCode(markerR, codeRanges) else { continue }
+            let syntax = NSRange(location: markerR.location, length: NSMaxRange(m.range(at: 3)) - markerR.location)
+            if NSLocationInRange(ctx.caret, syntax) { continue }
+            attrs.append((markerR, [.bulletMarker: true, .foregroundColor: NSColor.clear]))
+        }
+    }
+
+    /// Thematic break (`---`/`***`/`___`) styling, driven by the AST node (so a
+    /// `---` line inside a fenced code block is never mistaken for a rule). Tags
+    /// the line so the layout fragment paints a full-width rule; suppressed while
+    /// the caret sits on the line so the raw dashes stay editable.
+    private static func styleThematicBreak(range: NSRange, ctx: Ctx, into attrs: inout [StyledRange]) {
+        var hr = range
+        while hr.length > 0 {
+            let last = ctx.ns.character(at: NSMaxRange(hr) - 1)
+            guard last == 0x0A || last == 0x0D else { break }
+            hr.length -= 1
+        }
+        guard hr.length > 0,
+              !(NSLocationInRange(ctx.caret, hr) || ctx.caret == NSMaxRange(hr)) else { return }
+        attrs.append((hr, [.foregroundColor: NSColor.clear, .thematicBreak: true]))
+        attrs.append((hr, [.paragraphStyle: NSMutableParagraphStyle()]))
+    }
+
+    private static func styleAutoLinks(ctx: Ctx, codeRanges: [NSRange], into attrs: inout [StyledRange]) {
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else { return }
+        detector.enumerateMatches(in: ctx.text, range: ctx.fullRange) { match, _, _ in
+            guard let match, let url = match.url, !isInCode(match.range, codeRanges) else { return }
+            attrs.append((match.range, [.link: url]))
+        }
+    }
+
+    private static func styleIncompleteLinkBrackets(ctx: Ctx, codeRanges: [NSRange], into attrs: inout [StyledRange]) {
+        let patterns = [#"\[\]"#, #"\[\[\]\]"#, #"\[[^\]\r\n]*$"#, #"\[[^\]\r\n]+\](?!\()"#,
+                        #"\[[^\]\r\n]+\]\([^)\r\n]*$"#, #"\[[^\]\r\n]+\]\(\)"#]
+        let muted = ctx.theme.mutedText
+        let faded = ctx.theme.incompleteLink.withAlphaComponent(ctx.config.link.incompleteLinkAlpha)
+        for pattern in patterns {
+            guard let re = regex(pattern, false) else { continue }
+            for m in re.matches(in: ctx.text, options: [], range: ctx.fullRange) where !isInCode(m.range, codeRanges) {
+                for (i, ch) in ctx.ns.substring(with: m.range).enumerated() {
+                    let r = NSRange(location: m.range.location + i, length: 1)
+                    let isBracket = ch == "[" || ch == "]" || ch == "(" || ch == ")"
+                    attrs.append((r, [.foregroundColor: isBracket ? muted : faded]))
+                }
+            }
+        }
     }
 
     /// Shared inputs threaded through the walk.
@@ -75,6 +207,7 @@ enum MarkdownASTStyler {
         let baseParagraphSpacing: CGFloat
         let codeFont: NSFont
         let codeBackground: NSColor
+        let codeParagraphStyle: NSParagraphStyle
         let inlineMarkerFont: NSFont
         let caret: Int
         let config: MarkdownEditorConfiguration
@@ -82,6 +215,8 @@ enum MarkdownASTStyler {
 
         func isActive(_ range: NSRange) -> Bool { NSLocationInRange(caret, range) }
         var theme: MarkdownEditorTheme { config.theme }
+        var text: String { ns as String }
+        var fullRange: NSRange { NSRange(location: 0, length: ns.length) }
     }
 
     // MARK: - Blocks
@@ -109,12 +244,120 @@ enum MarkdownASTStyler {
             }
             styleInlines(inlines, font: headingFont, ctx: ctx, into: &attrs)
 
-        case .blockquote(_, let inlines):
-            styleInlines(inlines, font: font, ctx: ctx, into: &attrs)   // bar/indent/muting in 2.5c
+        case .blockquote(let range, let inlines):
+            styleBlockquote(range: range, ctx: ctx, into: &attrs)
+            styleInlines(inlines, font: font, ctx: ctx, into: &attrs)
 
-        case .codeBlock, .blockLatex, .table, .thematicBreak, .blank:
-            break   // block rendering ported in later increments
+        case .codeBlock(let range):
+            styleCodeBlock(range: range, ctx: ctx, into: &attrs)
+        case .thematicBreak(let range):
+            styleThematicBreak(range: range, ctx: ctx, into: &attrs)
+        case .blockLatex, .table, .blank:
+            break   // NSImage rendering ported next
         }
+    }
+
+    /// Per-line blockquote styling: indent paragraph, mute content, hide/show
+    /// the `>` markers, and tag the first char with the bar level.
+    private static func styleBlockquote(range: NSRange, ctx: Ctx, into attrs: inout [StyledRange]) {
+        let indentPerLevel = MarkdownTextLayoutFragment.blockquoteIndentPerLevel
+        var lineStart = range.location
+        let end = NSMaxRange(range)
+        while lineStart < end {
+            let line = ctx.ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            let lineEnd = NSMaxRange(line)
+            var i = line.location
+            var indent = 0
+            while i < lineEnd, indent < 3, ctx.ns.character(at: i) == 0x20 || ctx.ns.character(at: i) == 0x09 {
+                i += 1; indent += 1
+            }
+            let markerStart = i
+            var level = 0
+            var j = i
+            while j < lineEnd, ctx.ns.character(at: j) == 0x3E /* > */ {
+                level += 1; j += 1
+                if j < lineEnd, ctx.ns.character(at: j) == 0x20 || ctx.ns.character(at: j) == 0x09 { j += 1 }
+            }
+            defer { lineStart = lineEnd }
+            guard level > 0 else { continue }
+
+            var contentEnd = lineEnd
+            if contentEnd > j {
+                let last = ctx.ns.character(at: contentEnd - 1)
+                if last == 0x0A || last == 0x0D { contentEnd -= 1 }
+            }
+            let markerRange = NSRange(location: markerStart, length: j - markerStart)
+            let contentRange = NSRange(location: j, length: max(0, contentEnd - j))
+            let tokenRange = NSRange(location: line.location, length: contentEnd - line.location)
+
+            let textIndent = CGFloat(level) * indentPerLevel + indentPerLevel * 0.5
+            let para = NSMutableParagraphStyle()
+            para.firstLineHeadIndent = textIndent
+            para.headIndent = textIndent
+            para.minimumLineHeight = ctx.baseLineHeight
+            para.maximumLineHeight = ctx.baseLineHeight
+            para.paragraphSpacing = 0
+            para.paragraphSpacingBefore = 0
+            attrs.append((ctx.ns.paragraphRange(for: tokenRange), [.paragraphStyle: para]))
+
+            if contentRange.length > 0 {
+                attrs.append((contentRange, [.foregroundColor: ctx.theme.mutedText]))
+            }
+            if ctx.isActive(tokenRange) {
+                attrs.append((markerRange, [.foregroundColor: ctx.theme.mutedText]))
+            } else {
+                attrs.append((markerRange, [.foregroundColor: NSColor.clear, .font: ctx.inlineMarkerFont]))
+            }
+            attrs.append((NSRange(location: tokenRange.location, length: 1), [.blockquoteLevel: level]))
+        }
+    }
+
+    private static func styleCodeBlock(range: NSRange, ctx: Ctx, into attrs: inout [StyledRange]) {
+        let parts = codeBlockParts(range, ctx.ns)
+        attrs.append((parts.codeRange, [
+            .font: ctx.codeFont, .backgroundColor: ctx.codeBackground, .paragraphStyle: ctx.codeParagraphStyle,
+        ]))
+        let codeContent = ctx.ns.substring(with: parts.content)
+        if !codeContent.isEmpty,
+           let highlighted = ctx.config.services.syntaxHighlighter.highlight(code: codeContent, language: parts.language) {
+            highlighted.enumerateAttributes(in: NSRange(location: 0, length: highlighted.length)) { a, r, _ in
+                guard let fg = a[.foregroundColor] else { return }
+                attrs.append((NSRange(location: parts.content.location + r.location, length: r.length), [.foregroundColor: fg]))
+            }
+        }
+        let markerAttrs: [NSAttributedString.Key: Any] = ctx.isActive(parts.codeRange)
+            ? [.foregroundColor: ctx.theme.mutedText, .font: ctx.codeFont]
+            : [.foregroundColor: NSColor.clear, .font: ctx.codeFont]   // hiddenMarkerFont == codeFont
+        attrs.append((parts.openFence, markerAttrs))
+        attrs.append((parts.closeFence, markerAttrs))
+    }
+
+    /// Splits a fenced-code block range into its parts (matching the legacy
+    /// codeBlock token: opening fence incl. language + newline, content, the
+    /// closing backtick run, and the language).
+    private static func codeBlockParts(_ range: NSRange, _ ns: NSString)
+        -> (codeRange: NSRange, openFence: NSRange, content: NSRange, closeFence: NSRange, language: String?) {
+        let start = range.location
+        let end = NSMaxRange(range)
+        var openEnd = start
+        while openEnd < end, ns.character(at: openEnd) != 0x0A { openEnd += 1 }
+        if openEnd < end { openEnd += 1 }
+        let openFence = NSRange(location: start, length: openEnd - start)
+
+        let lastLine = ns.lineRange(for: NSRange(location: max(start, end - 1), length: 0))
+        var bt = lastLine.location
+        while bt < NSMaxRange(lastLine), ns.character(at: bt) == 0x60 { bt += 1 }
+        let closeFence = NSRange(location: lastLine.location, length: bt - lastLine.location)
+        let codeRange = NSRange(location: start, length: NSMaxRange(closeFence) - start)
+        let content = NSRange(location: openEnd, length: max(0, lastLine.location - openEnd))
+
+        var language: String?
+        if openFence.length > 3 {
+            let raw = ns.substring(with: NSRange(location: start + 3, length: openFence.length - 3))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            language = raw.isEmpty ? nil : raw
+        }
+        return (codeRange, openFence, content, closeFence, language)
     }
 
     // MARK: - Inlines (composing)

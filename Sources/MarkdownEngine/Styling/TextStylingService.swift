@@ -53,7 +53,7 @@ struct TextStylingService {
         paragraphStyle: NSMutableParagraphStyle,
         caretLocation: Int,
         activeTokenIndices: Set<Int>,
-        wikiLinkIDProvider: (NSRange) -> String?,
+        wikiLinkIDProvider: @escaping (NSRange) -> String?,
         precomputedTokens: [MarkdownToken]? = nil,
         configuration: MarkdownEditorConfiguration = .default
     ) {
