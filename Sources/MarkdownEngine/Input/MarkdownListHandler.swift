@@ -32,8 +32,11 @@ struct MarkdownLists {
         pattern: #"^\s*((?:(\d+)\.|[-•*+])(?:\s+\[[ xX]\])?\s+)"#
     )
     /// Blockquote line: ≤3 indent + `>` marker run; group 1 = whitespace, group 2 = markers.
+    // Trailing `[ \t]*` so the prefix length covers the space(s) the continuation
+    // inserts (`markers + " "`) — otherwise exiting an empty quote leaves a stray
+    // space (greedy like listRegex's `\s+`).
     static let blockquoteRegex = try! NSRegularExpression(
-        pattern: #"^( {0,3})(>+(?:[ \t]+>+)*)"#
+        pattern: #"^( {0,3})(>+(?:[ \t]+>+)*)[ \t]*"#
     )
     static let dashNoSpaceRegex = try! NSRegularExpression(pattern: #"^\s*-(?!\s)"#)
     static let leadingWhitespaceRegex = try! NSRegularExpression(pattern: #"^\s*"#)
