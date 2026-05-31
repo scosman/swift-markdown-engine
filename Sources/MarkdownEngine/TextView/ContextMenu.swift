@@ -120,12 +120,17 @@ extension NativeTextViewWrapper.Coordinator {
         let nsText = tv.string as NSString
         let range = tv.selectedRange()
         let lineRange = nsText.lineRange(for: range)
-        let rawLine = nsText.substring(with: lineRange).trimmingCharacters(in: .whitespacesAndNewlines)
+        let originalLine = nsText.substring(with: lineRange)
+        let rawLine = originalLine.trimmingCharacters(in: .whitespacesAndNewlines)
         var content = rawLine
         while content.hasPrefix("#") { content.removeFirst() }
         content = content.trimmingCharacters(in: .whitespaces)
         let prefix = String(repeating: "#", count: level) + " "
-        let newLine = prefix + content
+        // lineRange(for:) includes the trailing line terminator; preserve it so
+        // applying a heading to a non-final line doesn't swallow the newline and
+        // merge the line with the next one (mirrors applyList's suffix handling).
+        let suffix = originalLine.hasSuffix("\n") ? "\n" : ""
+        let newLine = prefix + content + suffix
         if tv.shouldChangeText(in: lineRange, replacementString: newLine) {
             tv.replaceCharacters(in: lineRange, with: newLine)
             tv.didChangeText()
