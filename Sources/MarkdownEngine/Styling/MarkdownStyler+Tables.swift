@@ -54,10 +54,14 @@ extension MarkdownStyler {
                 let muted = ctx.configuration.theme.mutedText
                 let body = ctx.configuration.theme.bodyText
                 attrs.append((token.range, [.foregroundColor: body, .font: ctx.baseFont]))
-                if let pipeRegex = try? NSRegularExpression(pattern: "\\|") {
-                    for m in pipeRegex.matches(in: ctx.text, options: [], range: token.range) {
-                        attrs.append((m.range, [.foregroundColor: muted]))
+                // Mute each `|` so the structure stays legible while editing.
+                let end = NSMaxRange(token.range)
+                var i = token.range.location
+                while i < end {
+                    if ctx.nsText.character(at: i) == 0x7C {   // '|'
+                        attrs.append((NSRange(location: i, length: 1), [.foregroundColor: muted]))
                     }
+                    i += 1
                 }
                 continue
             }
