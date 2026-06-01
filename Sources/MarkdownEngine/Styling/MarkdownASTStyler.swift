@@ -344,7 +344,8 @@ enum MarkdownASTStyler {
             para.headIndent = textIndent
             para.minimumLineHeight = ctx.baseLineHeight
             para.maximumLineHeight = ctx.baseLineHeight
-            para.paragraphSpacing = 0
+            // Inner quote lines stay tight (0); the LAST line gets the normal
+            para.paragraphSpacing = (lineEnd >= end) ? ctx.baseParagraphSpacing : 0
             para.paragraphSpacingBefore = 0
             attrs.append((ctx.ns.paragraphRange(for: tokenRange), [.paragraphStyle: para]))
 
@@ -356,7 +357,8 @@ enum MarkdownASTStyler {
             } else {
                 attrs.append((markerRange, [.foregroundColor: NSColor.clear, .font: ctx.inlineMarkerFont]))
             }
-            attrs.append((NSRange(location: tokenRange.location, length: 1), [.blockquoteLevel: level]))
+            // Whole line, not just the first char, so each soft-wrapped visual line
+            attrs.append((tokenRange, [.blockquoteLevel: level]))
         }
     }
 
