@@ -42,7 +42,7 @@ extension NativeTextView {
         if let pasted = plain {
             let sanitized = sanitizePastedText(pasted)
             if !sanitized.isEmpty {
-                insertText(sanitized, replacementRange: selectedRange())
+                insertPreservingBlockquote(sanitized)
                 return
             }
         }
@@ -50,12 +50,21 @@ extension NativeTextView {
         if let fileText = textFromPastedFileURL(pasteboard: pasteboard) {
             let sanitized = sanitizePastedText(fileText)
             if !sanitized.isEmpty {
-                insertText(sanitized, replacementRange: selectedRange())
+                insertPreservingBlockquote(sanitized)
                 return
             }
         }
 
         pasteAsPlainText(sender)
+    }
+
+    /// Insert pasted text, extending the `>` prefix to every line when the
+    /// caret sits on a blockquote line — so a multi-line paste stays quoted
+    /// instead of only its first line landing after the existing marker.
+    private func insertPreservingBlockquote(_ text: String) {
+        let sel = selectedRange()
+        let prepared = MarkdownLists.blockquoteContinuedPaste(text, at: sel.location, in: string)
+        insertText(prepared, replacementRange: sel)
     }
 
     private func insertBlockEmbed(_ embed: String) {

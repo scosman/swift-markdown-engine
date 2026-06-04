@@ -22,11 +22,15 @@ extension NativeTextView {
         targetWidth: CGFloat? = nil,
         debugTag: String = "?"
     ) {
-        _ = debugTag
         scrollView.contentInsets.bottom = 0
 
         let lineHeight = layoutBridgeDefaultLineHeight(for: self.baseFont, using: layoutBridge)
-        let measured = measuredBaseContentHeight(minimumHeight: lineHeight)
+        // File switch/resize forces full layout until height settles; typing stays O(edit).
+        if debugTag == "?" { pendingFullLayoutMeasure = true }
+        let measured = measuredBaseContentHeight(
+            minimumHeight: lineHeight,
+            forceFullLayout: pendingFullLayoutMeasure
+        )
         let visibleHeight = scrollView.contentView.bounds.height
         let policy = BottomOverscrollPolicy(
             overscrollPercent: overscrollPercent,
@@ -43,27 +47,39 @@ extension NativeTextView {
 
         let baseHeightChanged = abs(measured - baseContentHeight) > 0.5
         let overscrollChanged = abs(resolvedOverscroll - activeBottomOverscroll) > 0.5
+        // Height settled → stop forcing full layout (until the next switch/resize).
+        if !(baseHeightChanged || overscrollChanged) { pendingFullLayoutMeasure = false }
         guard baseHeightChanged || overscrollChanged else { return }
         baseContentHeight = measured
         activeBottomOverscroll = resolvedOverscroll
         applyManagedFrameSize(width: targetWidth ?? frame.size.width)
     }
 
-    func measuredBaseContentHeight(minimumHeight: CGFloat) -> CGFloat {
+    func measuredBaseContentHeight(minimumHeight: CGFloat, forceFullLayout: Bool = false) -> CGFloat {
         let minimumContentHeight = ceil(max(minimumHeight, 0) + (textContainerInset.height * 2))
         guard let textLayoutManager else { return minimumContentHeight }
 
+        // Partial TextKit-2 layout under-measures and oscillates; force full layout only on switch/resize.
+        if forceFullLayout {
+            textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
+        }
+
         let documentEnd = textLayoutManager.documentRange.endLocation
 
-        // Anchor: ensure the last fragment is laid out (also gives a max-Y fallback
-        // in case `enumerateTextSegments` misses the trailing extra-line fragment).
+        // Lay out the last fragment; gives a max-Y fallback if enumerateTextSegments misses it.
         var fragmentMaxY: CGFloat = 0
+        var visited = 0
         textLayoutManager.enumerateTextLayoutFragments(
             from: documentEnd,
             options: [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
         ) { fragment in
-            fragmentMaxY = fragment.layoutFragmentFrame.maxY
-            return false
+            let frame = fragment.layoutFragmentFrame
+            fragmentMaxY = max(fragmentMaxY, frame.maxY)
+            // Trailing block image draws below TextKit's height; count its surface extent so it scrolls.
+            let surfaceMaxY = frame.origin.y + fragment.renderingSurfaceBounds.maxY
+            if surfaceMaxY > frame.maxY + 8 { fragmentMaxY = max(fragmentMaxY, surfaceMaxY) }
+            visited += 1
+            return visited < 3
         }
 
         // End-segment maxY = authoritative document height in TextKit 2.
@@ -113,6 +129,7 @@ extension NativeTextView {
 
         let widthChanged = abs(newSize.width - frame.size.width) > 0.5
         if widthChanged {
+            pendingFullLayoutMeasure = true   // re-wrap → re-measure height against a full layout
             isApplyingManagedFrameSize = true
             super.setFrameSize(NSSize(width: newSize.width, height: frame.size.height))
             isApplyingManagedFrameSize = false
@@ -130,8 +147,7 @@ extension NativeTextView {
         }
     }
 
-    /// Restyle exactly the wide-table paragraphs using ranges stamped on their
-    /// anchors at original styling time — avoids re-tokenizing the whole doc.
+    /// Restyle only wide-table paragraphs via stamped anchor ranges; avoids re-tokenizing the doc.
     private func restyleWideTableParagraphsForWidthChange() {
         guard let storage = textStorage,
               let coord = delegate as? NativeTextViewCoordinator else { return }

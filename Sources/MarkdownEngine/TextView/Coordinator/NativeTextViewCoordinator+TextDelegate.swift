@@ -246,9 +246,14 @@ extension NativeTextViewCoordinator {
         let currentBulletSyntax = MarkdownStyler.bulletSyntaxRange(at: selLoc, in: tv.string)
         let bulletSyntaxChanged = prevBulletSyntax?.location != currentBulletSyntax?.location
             || prevBulletSyntax?.length != currentBulletSyntax?.length
+        // Mid-drag restyle is suppressed (revealing markers shifts the layout → drag hit-test lands short, dropping trailing chars) and replayed on release.
+        let isDragSelecting = currentEventType == .leftMouseDragged || currentEventType == .periodic
         if shouldSkipSelectionRestyle {
-            // textDidChange performs the pending restyle for this edit cycle.
-        } else if tokensChanged || taskSyntaxChanged || hrLineChanged || bulletSyntaxChanged {
+            needsRestyleAfterDrag = false // textDidChange restyles this edit cycle.
+        } else if isDragSelecting {
+            needsRestyleAfterDrag = true
+        } else if tokensChanged || taskSyntaxChanged || hrLineChanged || bulletSyntaxChanged || needsRestyleAfterDrag {
+            needsRestyleAfterDrag = false
             restyleTextView(tv, paragraphCandidates: paragraphCandidates, tokens: tokens)
         }
 

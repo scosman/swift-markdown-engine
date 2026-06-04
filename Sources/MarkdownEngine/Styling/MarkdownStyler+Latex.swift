@@ -68,6 +68,8 @@ extension MarkdownStyler {
         // the table — visible as a stray dot. Skip inline LaTeX inside a
         // table; the table image already covers it.
         let tableRanges = ctx.tokens.filter { $0.kind == .table }.map(\.range)
+        // Quote lines mute their text via foregroundColor, which the LaTeX *image* ignores — render it in mutedText instead so it matches the grey.
+        let blockquoteRanges = ctx.tokens.filter { $0.kind == .blockquote }.map(\.range)
         for (idx, token) in ctx.tokens.enumerated() where token.kind == .inlineLatex {
             if MarkdownDetection.isInsideCodeBlock(range: token.range, codeTokens: ctx.codeTokens) { continue }
             if tableRanges.contains(where: { tableRange in
@@ -86,7 +88,12 @@ extension MarkdownStyler {
                     attrs.append((markerRange, [.foregroundColor: ctx.configuration.theme.mutedText]))
                 }
             } else {
-                if let entry = ctx.services.latex.render(latex: latexContent, fontSize: latexFontSize, theme: ctx.configuration.theme) {
+                var renderTheme = ctx.configuration.theme
+                if blockquoteRanges.contains(where: { NSLocationInRange(token.range.location, $0) }) {
+                    renderTheme.latexLightModeText = renderTheme.mutedText
+                    renderTheme.latexDarkModeText = renderTheme.mutedText
+                }
+                if let entry = ctx.services.latex.render(latex: latexContent, fontSize: latexFontSize, theme: renderTheme) {
                     let imageBounds = CGRect(x: 0, y: entry.baselineOffset, width: entry.size.width, height: entry.size.height)
                     let contentLength = token.contentRange.length
                     let tinyDollarWidth = HeadingHelpers.textWidth("$", font: ctx.latexMarkerFont)

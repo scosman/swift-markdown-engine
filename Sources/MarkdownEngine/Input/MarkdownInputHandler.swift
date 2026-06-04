@@ -28,9 +28,7 @@ enum MarkdownInputHandler {
         textView.setSelectedRange(NSRange(location: cursorAfter, length: 0))
     }
 
-    /// Ensures block LaTeX ($$...$$) stays on its own line by automatically inserting newlines
-    /// when typing directly before or after a block LaTeX token.
-    /// Returns true if the insertion was handled (caller should return false from shouldChangeTextIn).
+    /// Keeps block LaTeX ($$...$$) on its own line by inserting newlines; returns true if handled.
     static func handleBlockLatexAutoWrap(
         textView: NSTextView,
         affectedCharRange: NSRange,
@@ -41,7 +39,7 @@ enum MarkdownInputHandler {
         if let blockLatexTokens {
             resolvedTokens = blockLatexTokens
         } else {
-            resolvedTokens = MarkdownTokenizer.parseTokens(in: textView.string).filter { $0.kind == .blockLatex }
+            resolvedTokens = MarkdownTokenizer.parseTokensViaAST(in: textView.string).filter { $0.kind == .blockLatex }
         }
         return handleBlockAutoWrap(textView: textView, affectedCharRange: affectedCharRange,
                                    replacementString: replacementString, tokens: resolvedTokens)
@@ -58,7 +56,7 @@ enum MarkdownInputHandler {
         if let imageEmbedTokens {
             resolvedTokens = imageEmbedTokens
         } else {
-            resolvedTokens = MarkdownTokenizer.parseTokens(in: textView.string).filter { $0.kind == .imageEmbed }
+            resolvedTokens = MarkdownTokenizer.parseTokensViaAST(in: textView.string).filter { $0.kind == .imageEmbed }
         }
         return handleBlockAutoWrap(textView: textView, affectedCharRange: affectedCharRange,
                                    replacementString: replacementString, tokens: resolvedTokens)

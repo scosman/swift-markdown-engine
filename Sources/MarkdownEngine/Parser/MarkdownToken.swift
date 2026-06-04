@@ -22,9 +22,7 @@ enum MarkdownTokenKind {
     case link
     case wikiLink
     case heading
-    /// One line of a blockquote. `markerRanges[0]` is the `>`/`>>`… run
-    /// (hidden when inactive); `contentRange` is the quoted text. The
-    /// nesting level is the count of `>` in the marker.
+    /// One blockquote line; `markerRanges[0]` is the `>` run, nesting = count of `>`.
     case blockquote
     case codeBlock
     case inlineCode
@@ -34,9 +32,7 @@ enum MarkdownTokenKind {
     case imageLink
     case strikethrough
     case table
-    /// A CommonMark backslash escape (`\*`, `` \` ``, `\\`, …). The marker
-    /// is the backslash (hidden when inactive); the content is the single
-    /// escaped, now-literal punctuation character.
+    /// A CommonMark backslash escape; marker is the `\`, content the escaped literal char.
     case backslashEscape
 }
 
@@ -71,7 +67,11 @@ extension MarkdownToken {
             return false
         }
         let paragraphEnd = NSMaxRange(paragraphRange)
-        let isAtLastParagraphEnd = selectionLocation == text.length && paragraphEnd == text.length
+        // Reveal source when caret is at document end right after the image, unless that line ends in a newline.
+        let endsWithNewline = paragraphEnd > paragraphRange.location
+            && (text.character(at: paragraphEnd - 1) == 0x0A || text.character(at: paragraphEnd - 1) == 0x0D)
+        let isAtLastParagraphEnd = selectionLocation == text.length
+            && paragraphEnd == text.length && !endsWithNewline
         return (selectionLocation >= paragraphRange.location && selectionLocation < paragraphEnd)
             || isAtLastParagraphEnd
     }

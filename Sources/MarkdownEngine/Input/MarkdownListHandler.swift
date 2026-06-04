@@ -31,12 +31,12 @@ struct MarkdownLists {
     static let listRegex = try! NSRegularExpression(
         pattern: #"^\s*((?:(\d+)\.|[-•*+])(?:\s+\[[ xX]\])?\s+)"#
     )
-    /// CommonMark blockquote line: ≤3 spaces of leading indent, then a run
-    /// of `>` markers, then an optional single space before content. The
-    /// captures are: (1) leading whitespace, (2) the `>`/`>>`… marker run.
-    /// Blockquote line: ≤3 indent + one or more `>` markers (also `> >` with spaces); group 2 captures the marker run.
+    /// Blockquote line: ≤3 indent + `>` marker run; group 1 = whitespace, group 2 = markers.
+    // Trailing `[ \t]*` so the prefix length covers the space(s) the continuation
+    // inserts (`markers + " "`) — otherwise exiting an empty quote leaves a stray
+    // space (greedy like listRegex's `\s+`).
     static let blockquoteRegex = try! NSRegularExpression(
-        pattern: #"^( {0,3})(>+(?:[ \t]+>+)*)"#
+        pattern: #"^( {0,3})(>+(?:[ \t]+>+)*)[ \t]*"#
     )
     static let dashNoSpaceRegex = try! NSRegularExpression(pattern: #"^\s*-(?!\s)"#)
     static let leadingWhitespaceRegex = try! NSRegularExpression(pattern: #"^\s*"#)
@@ -47,10 +47,7 @@ struct MarkdownLists {
         return tabCount + (spaceCount / 2)
     }
 
-    /// Remove the leading prefix on the current line (list marker, quote
-    /// marker, …) and place the caret at the line start. Used by Enter
-    /// handling when the marker has no content, so the user exits the block
-    /// without having to backspace through the prefix.
+    /// Remove the current line's leading marker and put the caret at line start (exit empty block on Enter).
     private static func removeLinePrefixAndExit(
         textView: NSTextView,
         currentLineRange: NSRange,
@@ -68,70 +65,24 @@ struct MarkdownLists {
         return false
     }
 
-    // MARK: - Paragraph Attributes for List Styling
-
-    static func paragraphAttributes(
-        for text: String,
-        baseFont: NSFont,
-        nsText: NSString,
-        fullRange: NSRange,
-        listsEnabled: Bool,
-        defaultLineHeight: CGFloat,
-        defaultParagraphSpacing: CGFloat,
-        configuration: MarkdownEditorConfiguration = .default
-    ) -> [(range: NSRange, attributes: [NSAttributedString.Key: Any])] {
-        var attributesList: [(range: NSRange, attributes: [NSAttributedString.Key: Any])] = []
-        guard listsEnabled else { return attributesList }
-
-        let indentPerLevel = configuration.lists.indentPerLevel
-        let extraLineHeight = configuration.lists.extraLineHeight
-
-        func applyListMatches(_ matches: [NSTextCheckingResult]) {
-            for match in matches {
-                let ps = NSMutableParagraphStyle()
-                ps.minimumLineHeight = defaultLineHeight + extraLineHeight
-                ps.maximumLineHeight = defaultLineHeight + extraLineHeight
-                ps.lineSpacing = 0
-                ps.paragraphSpacing = defaultParagraphSpacing
-                ps.paragraphSpacingBefore = 0
-                let wsRange = match.range(at: 1)
-                let markerRange = match.range(at: 2)
-                let ws = nsText.substring(with: wsRange)
-                // CommonMark nesting: 1 tab OR 2 spaces = one level deep.
-                let depthIndent = CGFloat(MarkdownLists.indentLevel(from: ws)) * indentPerLevel
-
-                let markerString = nsText.substring(with: markerRange) as NSString
-                let markerWidth = markerString.size(withAttributes: [.font: baseFont]).width
-                let hasCheckbox = markerString.range(of: "[").location != NSNotFound
-                let isChecked = markerString.range(of: "[x]", options: [.caseInsensitive]).location != NSNotFound
-                let extraSpacing = (hasCheckbox && !isChecked)
-                    ? HeadingHelpers.checkboxExtraSpacing(font: baseFont, configuration: configuration.checkbox)
-                    : 0
-
-                ps.tabStops = []
-                ps.defaultTabInterval = indentPerLevel
-                // Base lead indent: top-level item lines up with where legacy `\t• ` placed it.
-                let leadIndent = indentPerLevel
-                ps.firstLineHeadIndent = leadIndent
-                ps.headIndent = leadIndent + depthIndent + markerWidth + extraSpacing
-
-                attributesList.append((match.range(at: 0), [.paragraphStyle: ps]))
-            }
-        }
-
-        // Ordered lists
-        let orderedListPattern = #"^([ \t]*)(\d+\.(?:[ \t]+\[[ xX]\])?[ \t]+)(.*)$"#
-        if let orderedListRegex = try? NSRegularExpression(pattern: orderedListPattern, options: [.anchorsMatchLines]) {
-            applyListMatches(orderedListRegex.matches(in: text, options: [], range: fullRange))
-        }
-
-        // Bullet lists
-        let bulletListPattern = #"^([ \t]*)([-•*+](?:[ \t]+\[[ xX]\])?[ \t]+)(.*)$"#
-        if let bulletListRegex = try? NSRegularExpression(pattern: bulletListPattern, options: [.anchorsMatchLines]) {
-            let bulletMatches = bulletListRegex.matches(in: text, options: [], range: fullRange)
-            applyListMatches(bulletMatches)
-        }
-        return attributesList
+    /// Mirror Enter-key quote continuation for multi-line pastes: when `location`
+    /// sits on a blockquote line, prefix every line after the first with that
+    /// line's `>` marker run so the whole paste stays inside the quote. Returns
+    /// `pasted` unchanged when it has no newline or the caret isn't in a quote.
+    static func blockquoteContinuedPaste(_ pasted: String, at location: Int, in document: String) -> String {
+        guard pasted.contains("\n") else { return pasted }
+        let ns = document as NSString
+        guard location >= 0, location <= ns.length else { return pasted }
+        let lineRange = ns.lineRange(for: NSRange(location: location, length: 0))
+        let nsLine = ns.substring(with: lineRange) as NSString
+        guard let match = blockquoteRegex.firstMatch(
+            in: nsLine as String,
+            range: NSRange(location: 0, length: nsLine.length)
+        ) else { return pasted }
+        let ws = nsLine.substring(with: match.range(at: 1))
+        let markers = nsLine.substring(with: match.range(at: 2))
+        let prefix = ws + markers + " "
+        return pasted.replacingOccurrences(of: "\n", with: "\n" + prefix)
     }
 
     // MARK: - Input Handling
@@ -250,14 +201,7 @@ struct MarkdownLists {
             let currentLineRange = nsText.lineRange(for: NSRange(location: safeLocENTER, length: 0))
             let currentLine = nsText.substring(with: currentLineRange).trimmingCharacters(in: .whitespacesAndNewlines)
 
-            // Note: horizontal-rule rendering is handled entirely in the styler
-            // via the `.thematicBreak` attribute and a full-width band in
-            // `MarkdownTextLayoutFragment.drawThematicBreaks`. The source text
-            // stays as the literal `---` (or however many dashes the user
-            // typed) so the file round-trips through any other Markdown tool
-            // — no `Obsidian / Typora / Bear / iA Writer` expand source on
-            // Enter, and doing so here used to leave 80–120 dashes in the
-            // buffer that broke copy-paste, diffs, and inter-editor opening.
+            // Horizontal rules render via the styler; source stays literal `---` so files round-trip.
 
             if currentLine.range(of: "^```\\w*$", options: .regularExpression) != nil {
                 let textBeforeLine = nsText.substring(to: currentLineRange.location)
@@ -339,10 +283,7 @@ struct MarkdownLists {
                         newListItem = "\n" + leadingWhitespace + "\(number + 1). "
                     }
                 } else {
-                    // Continue the bullet with the user's own marker char
-                    // (normalize a legacy `•` to `-`), preserving the line's
-                    // exact leading whitespace so nesting carries over. Storage
-                    // stays raw Markdown — the `•` glyph is drawn, not stored.
+                    // Continue with the user's marker char (legacy `•` → `-`), keeping leading whitespace.
                     let bulletChar = (marker.first == "•") ? "-" : String(marker.prefix(1))
                     if hasCheckbox {
                         newListItem = "\n" + leadingWhitespace + bulletChar + " [ ] "

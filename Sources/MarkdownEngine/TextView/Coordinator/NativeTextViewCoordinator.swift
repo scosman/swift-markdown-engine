@@ -36,6 +36,7 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     /// fingerprint" check — re-reading the same object twice always
     /// returns the current value, regardless of when state changed.
     var lastImageFingerprint: AnyHashable?
+    var lastWikiFingerprint: AnyHashable?
     private var busObservers: [NSObjectProtocol] = []
     private var registeredAppearanceObserverName: Notification.Name?
     weak var textView: NSTextView?
@@ -69,6 +70,8 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     var pendingEditedRange: NSRange? = nil
     var pendingPreEditActiveTokenIndices: Set<Int>? = nil
     var previousCaretLocation: Int? = nil
+    /// Drag-select suppressed a restyle; replayed on the next non-drag selection change.
+    var needsRestyleAfterDrag = false
 
     var cachedCodeBlockTokens: [(index: Int, token: MarkdownToken)] = []
     var cachedParsedText: String?

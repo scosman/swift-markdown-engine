@@ -21,6 +21,8 @@ final class NativeTextView: NSTextView {
     var baseContentHeight: CGFloat = 0
     var activeBottomOverscroll: CGFloat = 0
     var isApplyingManagedFrameSize = false
+    /// Set on switch/resize to force full-layout height measurement until the cascade settles.
+    var pendingFullLayoutMeasure = false
     var suppressAutoRevealOnce: Bool = false
 
     // MARK: Configuration
@@ -56,15 +58,13 @@ final class NativeTextView: NSTextView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        // Forward appearance changes to the embedder-supplied syntax highlighter
-        // via the notification name it registered. The engine doesn't know any
-        // app-specific notification names; this hook is opt-in per highlighter.
+        // Forward appearance changes to the embedder's highlighter via its registered notification.
         if let name = configuration.services.syntaxHighlighter.appearanceDidChangeNotification {
             NotificationCenter.default.post(name: name, object: self)
         }
     }
 
-    // AppKit skips textDidChange for setMarkedText, so markdown attrs (heading font, code-block bg) don't reach the marked range — restyle the affected paragraph to fix it.
+    // setMarkedText skips textDidChange, so restyle the marked paragraph to apply markdown attrs.
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         guard hasMarkedText(),

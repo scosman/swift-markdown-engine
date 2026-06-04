@@ -55,9 +55,7 @@ public enum WikiLinkService {
     private static let displayLinkRegex = try! NSRegularExpression(pattern: displayPattern)
     private static let logger = Logger(subsystem: "com.markdownengine.wikilinks", category: "WikiLink")
 
-    /// Convert storage form `[[Name|<id>]]` into display form `[[Name]]`,
-    /// returning both the rewritten string and a metadata map keyed by the
-    /// display range so callers can recover the original storage range and id.
+    /// Convert storage form `[[Name|<id>]]` to display `[[Name]]`, returning a display-range metadata map.
     public static func makeDisplayState(from storageText: String) -> (display: String, metadata: [RangeKey: LinkMetadata]) {
         let nsStorage = storageText as NSString
         let fullRange = NSRange(location: 0, length: nsStorage.length)
@@ -103,24 +101,25 @@ public enum WikiLinkService {
         return (result, metadata)
     }
 
-    /// Convert display form `[[Name]]` back into storage form `[[Name|<id>]]`,
-    /// preferring an id read from the live text storage's `.wikiLinkID`
-    /// attribute and falling back to `existingMetadata`.
+    /// Convert display `[[Name]]` back to storage `[[Name|<id>]]`, preferring the `.wikiLinkID` attribute.
     public static func makeStorageState(
         from displayText: String,
         existingMetadata: [RangeKey: LinkMetadata],
         textStorage: NSTextStorage?
     ) -> (storage: String, metadata: [RangeKey: LinkMetadata]) {
         let nsDisplay = displayText as NSString
-        let fullRange = NSRange(location: 0, length: nsDisplay.length)
+        // No `[[` anywhere → storage == display; skip the O(document) rebuild.
+        if nsDisplay.range(of: "[[").location == NSNotFound {
+            return (displayText, [:])
+        }
         var storage = ""
-        storage.reserveCapacity(displayText.count)
+        storage.reserveCapacity(nsDisplay.length)   // was displayText.count (O(doc) grapheme count)
         var metadata: [RangeKey: LinkMetadata] = [:]
         var cursor = 0
         var storageLength = 0
 
-        for match in displayLinkRegex.matches(in: displayText, options: [], range: fullRange) {
-            let prefixLength = match.range.location - cursor
+        for matchRange in displayLinkRanges(nsDisplay) {
+            let prefixLength = matchRange.location - cursor
             if prefixLength > 0 {
                 let prefixRange = NSRange(location: cursor, length: prefixLength)
                 let prefix = nsDisplay.substring(with: prefixRange)
@@ -129,8 +128,8 @@ public enum WikiLinkService {
                 cursor += prefixLength
             }
 
-            let contentLength = max(0, match.range.length - 4)
-            let contentRange = NSRange(location: match.range.location + 2, length: contentLength)
+            let contentLength = max(0, matchRange.length - 4)
+            let contentRange = NSRange(location: matchRange.location + 2, length: contentLength)
             let name = nsDisplay.substring(with: contentRange)
 
             var linkID: String? = nil
@@ -140,7 +139,7 @@ public enum WikiLinkService {
                 }
             }
             if linkID == nil {
-                linkID = existingMetadata[RangeKey(match.range)]?.id
+                linkID = existingMetadata[RangeKey(matchRange)]?.id
             }
 
             let storageFragment: String
@@ -154,8 +153,8 @@ public enum WikiLinkService {
             storage.append(storageFragment)
             storageLength += fragmentLength
 
-            metadata[RangeKey(match.range)] = LinkMetadata(id: linkID, storageRange: storageRange)
-            cursor = match.range.location + match.range.length
+            metadata[RangeKey(matchRange)] = LinkMetadata(id: linkID, storageRange: storageRange)
+            cursor = matchRange.location + matchRange.length
         }
 
         if cursor < nsDisplay.length {
@@ -166,9 +165,38 @@ public enum WikiLinkService {
         return (storage, metadata)
     }
 
-    /// Resolve a clicked link's opaque id by reading the `.wikiLinkID`
-    /// attribute under the caret, falling back to the link's display string
-    /// if the attribute is missing.
+    /// Hand scan for display-form wiki links `(?<!!)\[\[...\]\]`, replacing the slow regex lookbehind.
+    static func displayLinkRanges(_ s: NSString) -> [NSRange] {
+        let len = s.length
+        guard len >= 4 else { return [] }
+        var buf = [unichar](repeating: 0, count: len)   // one bulk extract, then array access
+        s.getCharacters(&buf, range: NSRange(location: 0, length: len))
+        var result: [NSRange] = []
+        var i = 0
+        while i + 1 < len {
+            guard buf[i] == 0x5B, buf[i + 1] == 0x5B else { i += 1; continue }   // [[
+            if i > 0, buf[i - 1] == 0x21 { i += 2; continue }                    // preceded by ! → skip
+            var j = i + 2
+            var matched = false
+            while j < len {
+                let c = buf[j]
+                if c == 0x0A || c == 0x0D { break }                             // newline → no match
+                if c == 0x5D {                                                  // ]
+                    if j + 1 < len, buf[j + 1] == 0x5D {                        // ]]
+                        result.append(NSRange(location: i, length: (j + 2) - i))
+                        i = j + 2
+                        matched = true
+                    }
+                    break
+                }
+                j += 1
+            }
+            if !matched { i += 1 }
+        }
+        return result
+    }
+
+    /// Resolve a clicked link's id from the caret's `.wikiLinkID` attribute, else its display string.
     public static func resolveIdentifier(link: Any, textView: NSTextView, at charIndex: Int) -> String? {
         if let idAttr = textView.textStorage?.attribute(.wikiLinkID, at: charIndex, effectiveRange: nil) as? String {
             return idAttr
@@ -179,16 +207,13 @@ public enum WikiLinkService {
         return nil
     }
 
-    /// Split a single storage fragment `[[Name|<id>]]` into its display
-    /// form (`[[Name]]`) and the opaque identifier.
+    /// Split a storage fragment `[[Name|<id>]]` into its display form and the opaque id.
     public static func displayFragmentAndID(from storageFragment: String) -> (display: String, id: String?) {
         let displayState = makeDisplayState(from: storageFragment)
         return (displayState.display, displayState.metadata.values.first?.id)
     }
 
-    /// Compute the zero-length caret range that should follow a replacement
-    /// of `displayRange` with `storageFragment` (after the storage→display
-    /// rewrite that the engine performs internally).
+    /// Zero-length caret range following replacement of `displayRange` with `storageFragment`.
     public static func caretRangeAfterReplacing(
         displayRange: NSRange,
         with storageFragment: String

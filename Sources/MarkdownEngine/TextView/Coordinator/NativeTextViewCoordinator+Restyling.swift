@@ -13,7 +13,7 @@
 import AppKit
 
 extension NativeTextViewCoordinator {
-    /// Atomically rebuilds the text view's contents + base attributes + Markdown styling from a storage-form `text`; caller handles scroll/overscroll and code-block selection refresh.
+    /// Atomically rebuilds contents + base attrs + Markdown styling from storage-form `text`.
     func rebuildTextStorageAndStyle(
         _ textView: NSTextView,
         from text: String,
@@ -47,9 +47,7 @@ extension NativeTextViewCoordinator {
         textView.textStorage?.setAttributes(baseAttrs, range: fullRange)
 
         let tokens = parsedDocument(for: displayText).tokens
-        // Hide the caret position from styling when the view is read-only,
-        // otherwise clicks reveal raw token syntax (#, `, etc.) even though
-        // the user can't edit.
+        // Hide caret from styling when read-only, else clicks reveal raw token syntax.
         let caretLocation = textView.isEditable ? textView.selectedRange().location : -1
         activeTokenIndices = MarkdownDetection.computeActiveTokenIndices(
             selectionRange: textView.selectedRange(),
@@ -135,7 +133,7 @@ extension NativeTextViewCoordinator {
             return cachedParsedDocument
         }
 
-        let tokens = MarkdownTokenizer.parseTokens(in: text)
+        let tokens = MarkdownTokenizer.parseTokensViaAST(in: text)
         var codeTokens: [MarkdownToken] = []
         var latexTokens: [MarkdownToken] = []
         var blockLatexTokens: [MarkdownToken] = []

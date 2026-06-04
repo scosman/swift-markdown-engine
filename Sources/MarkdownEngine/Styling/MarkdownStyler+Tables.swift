@@ -30,11 +30,7 @@ extension MarkdownStyler {
         // Per-content occurrence counter so identical tables get distinct sourceIDs.
         var occurrenceByContentHash: [Int: Int] = [:]
         for (idx, token) in ctx.tokens.enumerated() where token.kind == .table {
-            // The tokenizer already drops table matches that overlap a
-            // fenced code block, so we don't re-check that here. (The
-            // generic isInsideCodeBlock helper also flags overlap with
-            // inline code, which would falsely reject any table that
-            // contains a `…` cell.)
+            // Tokenizer already drops tables overlapping fenced code, so no re-check here.
             attrs.append((token.range, [.spellingState: 0]))
 
             let source = ctx.nsText.substring(with: token.range)
@@ -47,17 +43,18 @@ extension MarkdownStyler {
 
             let isActive = ctx.activeTokenIndices.contains(idx)
             if isActive {
-                // Caret inside the table — show source so the user can
-                // edit. We mute pipes so the structure stays legible
-                // without dominating, matching how the rest of the engine
-                // dims syntax characters.
+                // Caret inside the table — show editable source, pipes muted like other syntax.
                 let muted = ctx.configuration.theme.mutedText
                 let body = ctx.configuration.theme.bodyText
                 attrs.append((token.range, [.foregroundColor: body, .font: ctx.baseFont]))
-                if let pipeRegex = try? NSRegularExpression(pattern: "\\|") {
-                    for m in pipeRegex.matches(in: ctx.text, options: [], range: token.range) {
-                        attrs.append((m.range, [.foregroundColor: muted]))
+                // Mute each `|` so the structure stays legible while editing.
+                let end = NSMaxRange(token.range)
+                var i = token.range.location
+                while i < end {
+                    if ctx.nsText.character(at: i) == 0x7C {   // '|'
+                        attrs.append((NSRange(location: i, length: 1), [.foregroundColor: muted]))
                     }
+                    i += 1
                 }
                 continue
             }
@@ -156,13 +153,8 @@ extension MarkdownStyler {
 
     // MARK: - Inline-formatted cell strings
 
-    /// Convert a raw cell string (which may contain inline markdown like
-    /// `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`, `$math$`) into an
-    /// `NSAttributedString`. Markers themselves are stripped so the rendered
-    /// table image only shows the formatted result. LaTeX spans become
-    /// `NSTextAttachment` images so the math metrics flow through to
-    /// column-width measurement. Header cells start out bold.
-    private static func formattedCellString(
+    /// Raw cell → `NSAttributedString`: inline markdown applied, markers stripped, LaTeX as attachments.
+    static func formattedCellString(
         _ raw: String,
         baseFont: NSFont,
         header: Bool,
@@ -172,110 +164,93 @@ extension MarkdownStyler {
     ) -> NSAttributedString {
         let descriptor = baseFont.fontDescriptor
         let pointSize = baseFont.pointSize
-        let regularFont = baseFont
-        let boldFont = NSFont(descriptor: descriptor.withSymbolicTraits(.bold), size: pointSize) ?? baseFont
-        let italicFont = NSFont(descriptor: descriptor.withSymbolicTraits(.italic), size: pointSize) ?? baseFont
-        let boldItalicFont = NSFont(descriptor: descriptor.withSymbolicTraits([.bold, .italic]), size: pointSize) ?? boldFont
         let codeFont = NSFont.monospacedSystemFont(ofSize: pointSize, weight: .regular)
+        let startFont = header
+            ? (NSFont(descriptor: descriptor.withSymbolicTraits(.bold), size: pointSize) ?? baseFont)
+            : baseFont
+        let out = NSMutableAttributedString()
+        appendInlineCell(
+            InlineParser.parse(raw), in: raw as NSString, into: out,
+            font: startFont, baseDescriptor: descriptor, pointSize: pointSize,
+            codeFont: codeFont, theme: theme, codeBackgroundColor: codeBackgroundColor, latex: latex
+        )
+        return out
+    }
 
-        let baseAttrs: [NSAttributedString.Key: Any] = [
-            .font: header ? boldFont : regularFont,
-            .foregroundColor: theme.bodyText
-        ]
+    /// Compose `current`'s bold/italic traits with `kind` so nested emphasis stacks (italic+bold).
+    private static func composeEmphasis(
+        _ current: NSFont, _ kind: EmphasisKind,
+        baseDescriptor: NSFontDescriptor, pointSize: CGFloat
+    ) -> NSFont {
+        var traits = current.fontDescriptor.symbolicTraits.intersection([.bold, .italic])
+        switch kind {
+        case .bold: traits.insert(.bold)
+        case .italic: traits.insert(.italic)
+        case .boldItalic: traits.formUnion([.bold, .italic])
+        }
+        return NSFont(descriptor: baseDescriptor.withSymbolicTraits(traits), size: pointSize) ?? current
+    }
 
-        let result = NSMutableAttributedString(string: raw, attributes: baseAttrs)
-
-        // For each pattern: find matches, and for each match (in reverse so
-        // earlier offsets stay stable), strip the markers and apply attrs
-        // on the inner content. The `attrsForCurrentFont` closure receives
-        // the font already set on the inner range so we can compose
-        // bold-on-italic, italic-on-bold, etc.
-        func applyPattern(
-            _ pattern: String,
-            prefix: Int,
-            suffix: Int,
-            attrsForCurrentFont: (NSFont) -> [NSAttributedString.Key: Any]
-        ) {
-            guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
-            let scan = result.string as NSString
-            let matches = regex.matches(in: result.string, range: NSRange(location: 0, length: scan.length))
-            for m in matches.reversed() {
-                let full = m.range
-                let inner = NSRange(location: full.location + prefix, length: full.length - prefix - suffix)
-                guard inner.length > 0,
-                      inner.location >= 0,
-                      inner.location + inner.length <= result.length else { continue }
-                let currentFont = (result.attribute(.font, at: inner.location, effectiveRange: nil) as? NSFont) ?? regularFont
-                let innerString = (result.string as NSString).substring(with: inner)
-                let replacement = NSMutableAttributedString(string: innerString)
-                // Carry over existing attributes on the inner range so
-                // already-applied formatting (e.g. inline-code processed
-                // earlier) survives the marker strip.
-                result.enumerateAttributes(in: inner, options: []) { existing, range, _ in
-                    let local = NSRange(location: range.location - inner.location, length: range.length)
-                    replacement.addAttributes(existing, range: local)
+    /// Walk the inline AST into marker-stripped runs; LaTeX as attachments, links/embeds emitted raw.
+    private static func appendInlineCell(
+        _ nodes: [InlineNode],
+        in ns: NSString,
+        into out: NSMutableAttributedString,
+        font: NSFont,
+        baseDescriptor: NSFontDescriptor,
+        pointSize: CGFloat,
+        codeFont: NSFont,
+        theme: MarkdownEditorTheme,
+        codeBackgroundColor: NSColor,
+        latex: any LatexRenderer
+    ) {
+        func recurse(_ children: [InlineNode], _ f: NSFont) {
+            appendInlineCell(children, in: ns, into: out, font: f, baseDescriptor: baseDescriptor,
+                             pointSize: pointSize, codeFont: codeFont, theme: theme,
+                             codeBackgroundColor: codeBackgroundColor, latex: latex)
+        }
+        func appendPlain(_ range: NSRange, _ f: NSFont) {
+            out.append(NSAttributedString(string: ns.substring(with: range),
+                                          attributes: [.font: f, .foregroundColor: theme.bodyText]))
+        }
+        for node in nodes {
+            switch node {
+            case .text(let r):
+                appendPlain(r, font)
+            case .escape(_, let character, _):
+                appendPlain(character, font)
+            case .emphasis(let kind, _, _, let children):
+                recurse(children, composeEmphasis(font, kind, baseDescriptor: baseDescriptor, pointSize: pointSize))
+            case .strikethrough(_, _, let children):
+                let start = out.length
+                recurse(children, font)
+                if out.length > start {
+                    out.addAttributes([
+                        .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                        .strikethroughColor: theme.bodyText
+                    ], range: NSRange(location: start, length: out.length - start))
                 }
-                replacement.addAttributes(
-                    attrsForCurrentFont(currentFont),
-                    range: NSRange(location: 0, length: replacement.length)
-                )
-                result.replaceCharacters(in: full, with: replacement)
+            case .code(_, let content):
+                out.append(NSAttributedString(string: ns.substring(with: content), attributes: [
+                    .font: codeFont, .backgroundColor: codeBackgroundColor, .foregroundColor: theme.bodyText
+                ]))
+            case .inlineLatex(let range, let content, _):
+                if let entry = latex.render(latex: ns.substring(with: content), fontSize: pointSize, theme: theme) {
+                    let attachment = NSTextAttachment()
+                    attachment.image = entry.image
+                    attachment.bounds = CGRect(x: 0, y: entry.baselineOffset,
+                                               width: entry.size.width, height: entry.size.height)
+                    out.append(NSAttributedString(attachment: attachment))
+                } else {
+                    appendPlain(range, font)   // renderer unavailable → keep raw `$…$`
+                }
+            case .link(let range, _, _, _, _),
+                 .image(let range, _, _, _),
+                 .wikiLink(let range, _, _, _),
+                 .imageEmbed(let range, _, _):
+                appendPlain(range, font)
             }
         }
-
-        // LaTeX first — replace each `$...$` with an inline image so the
-        // markers and content disappear from later passes. We use
-        // `NSTextAttachment` so column-width measurement and drawing both
-        // pick up the image's intrinsic size and baseline offset.
-        if let latexRegex = try? NSRegularExpression(pattern: #"\$([^$]+)\$"#) {
-            let scan = result.string as NSString
-            let matches = latexRegex.matches(in: result.string, range: NSRange(location: 0, length: scan.length))
-            for m in matches.reversed() {
-                let full = m.range
-                let inner = NSRange(location: full.location + 1, length: full.length - 2)
-                guard inner.length > 0 else { continue }
-                let latexContent = (result.string as NSString).substring(with: inner)
-                guard let entry = latex.render(latex: latexContent, fontSize: pointSize, theme: theme) else { continue }
-                let attachment = NSTextAttachment()
-                attachment.image = entry.image
-                attachment.bounds = CGRect(
-                    x: 0,
-                    y: entry.baselineOffset,
-                    width: entry.size.width,
-                    height: entry.size.height
-                )
-                let replacement = NSAttributedString(attachment: attachment)
-                result.replaceCharacters(in: full, with: replacement)
-            }
-        }
-
-        // Inline code next so its content can't be re-interpreted.
-        applyPattern(#"`([^`]+)`"#, prefix: 1, suffix: 1) { _ in
-            [
-                .font: codeFont,
-                .backgroundColor: codeBackgroundColor
-            ]
-        }
-        applyPattern(#"~~([^~]+)~~"#, prefix: 2, suffix: 2) { _ in
-            [
-                .strikethroughStyle: NSUnderlineStyle.single.rawValue,
-                .strikethroughColor: theme.bodyText
-            ]
-        }
-        applyPattern(#"\*\*\*([^*]+)\*\*\*"#, prefix: 3, suffix: 3) { _ in
-            [.font: boldItalicFont]
-        }
-        applyPattern(#"\*\*([^*]+)\*\*"#, prefix: 2, suffix: 2) { current in
-            current.fontDescriptor.symbolicTraits.contains(.italic)
-                ? [.font: boldItalicFont]
-                : [.font: boldFont]
-        }
-        applyPattern(#"\*([^*]+)\*"#, prefix: 1, suffix: 1) { current in
-            current.fontDescriptor.symbolicTraits.contains(.bold)
-                ? [.font: boldItalicFont]
-                : [.font: italicFont]
-        }
-        return result
     }
 
     // MARK: - Rendering
@@ -292,9 +267,7 @@ extension MarkdownStyler {
         let cellHPadding: CGFloat = 12
         let cellVPadding: CGFloat = 6
         let borderWidth: CGFloat = 1
-        // Resolve under the editor's real appearance: `.withAlphaComponent()` on a
-        // dynamic color freezes it to whatever NSAppearance.current happens to be,
-        // which made the lines invisible in light mode (frozen to the dark value).
+        // Resolve under the real appearance: `.withAlphaComponent()` freezes a dynamic color otherwise.
         func mutedColor(alpha: CGFloat) -> NSColor {
             var resolved: NSColor = theme.mutedText
             appearance.performAsCurrentDrawingAppearance {
@@ -306,9 +279,7 @@ extension MarkdownStyler {
         let baseLineHeight: CGFloat = ceil(baseFont.ascender - baseFont.descender + baseFont.leading)
         let minColumnContentWidth: CGFloat = 16
 
-        // Pre-format every cell so column-width measurement and drawing
-        // both use the same NSAttributedString (incl. bold/italic/code
-        // metrics + LaTeX attachment sizes).
+        // Pre-format every cell so width measurement and drawing share one NSAttributedString.
         let headerCells = table.header.map {
             formattedCellString(
                 $0, baseFont: baseFont, header: true, theme: theme,
@@ -350,8 +321,7 @@ extension MarkdownStyler {
 
         let size = NSSize(width: totalWidth, height: totalHeight)
 
-        // Pre-compute layout offsets (top-down coords; the drawing handler
-        // runs in a flipped context so this reads naturally).
+        // Pre-compute layout offsets (top-down coords; drawing runs flipped).
         var columnLeft = [CGFloat](repeating: 0, count: columnCount + 1)
         columnLeft[0] = borderWidth
         for i in 0..<columnCount {
@@ -366,9 +336,7 @@ extension MarkdownStyler {
         let alignments = table.alignments
         let headerFill = mutedColor(alpha: 0.08)
 
-        // Use a flipped image so AppKit drawing routines (NSBezierPath,
-        // NSAttributedString.draw) handle the y-flip themselves; manually
-        // applying an NSAffineTransform mirror flips the glyphs as well.
+        // Flipped image so AppKit handles the y-flip; a manual transform mirror would flip glyphs too.
         return NSImage(size: size, flipped: true) { _ in
             // Header row fill
             headerFill.setFill()
@@ -410,11 +378,7 @@ extension MarkdownStyler {
                 let cellLeft = columnLeft[col] + cellHPadding
                 let cellRight = columnLeft[col + 1] - borderWidth - cellHPadding
                 let availableWidth = cellRight - cellLeft
-                // Use NSParagraphStyle's alignment within the cell-content
-                // rect rather than computing the x-offset manually. The
-                // text engine then handles ellipsis/clipping consistently
-                // and we don't have to second-guess where the line origin
-                // ends up in flipped coords.
+                // Align via NSParagraphStyle in the content rect so the text engine handles clipping.
                 let paragraph = NSMutableParagraphStyle()
                 switch alignments[col] {
                 case .left:   paragraph.alignment = .left

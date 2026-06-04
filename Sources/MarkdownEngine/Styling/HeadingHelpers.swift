@@ -10,20 +10,6 @@ import AppKit
 
 enum HeadingHelpers {
 
-    static func headingFontMultiplier(
-        for level: Int,
-        configuration: HeadingStyle = .default
-    ) -> CGFloat {
-        configuration.fontMultiplier(for: level)
-    }
-
-    static func headingTopSpacingEm(
-        for level: Int,
-        configuration: HeadingStyle = .default
-    ) -> CGFloat {
-        configuration.topSpacingEm(for: level)
-    }
-
     /// Use heading context to scale LaTeX font size consistently with surrounding text.
     static func latexFontSize(
         for token: MarkdownToken,
