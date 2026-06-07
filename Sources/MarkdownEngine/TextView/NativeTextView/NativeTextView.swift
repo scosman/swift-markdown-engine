@@ -38,6 +38,12 @@ final class NativeTextView: NSTextView {
     var minOverscrollPoints: CGFloat = MarkdownEditorConfiguration.default.overscroll.minPoints
 
     // MARK: Top header reservation
+    /// The measured text content height *excluding* the header reservation. Cached
+    /// by `measuredBaseContentHeight` so that changing `topContentInset` is a cheap,
+    /// consistent recompute (`baseContentHeight = textOnlyContentHeight + inset`)
+    /// rather than a second, divergent accounting of the content height.
+    var textOnlyContentHeight: CGFloat = 0
+
     /// Empty space reserved at the very top of the content for an embedder-supplied
     /// header view (see ``NativeTextViewWrapper`` `header:`). The text is shifted
     /// down by this amount via `textContainerOrigin` and the measured content height
@@ -46,25 +52,18 @@ final class NativeTextView: NSTextView {
     /// body. Driven internally by the wrapper from the header's intrinsic height.
     var topContentInset: CGFloat = 0 {
         didSet {
-            let delta = topContentInset - oldValue
-            guard abs(delta) > 0.01 else { return }
-            // The reserved region grows/shrinks by exactly `delta`; the text below
-            // is unchanged, so adjust the content height directly instead of doing a
-            // full TextKit re-measure. This keeps header expand/collapse smooth at
-            // 60fps (the wrapper drives this from the header's animating height).
-            baseContentHeight = max(0, baseContentHeight + delta)
-            // Pin the scroll origin across the frame resize. The header is anchored
-            // to the top of the content, so growth must happen *below* it; without
-            // this, NSScrollView's resize bias shifts the whole content (the header
-            // appears to jump) instead of only moving the header's lower edge.
-            let clip = enclosingScrollView?.contentView
-            let savedOrigin = clip?.bounds.origin
+            guard abs(topContentInset - oldValue) > 0.01 else { return }
+            // Single source of truth, identical to `measuredBaseContentHeight`:
+            // total content height = text height + reserved header. Cheap — no
+            // TextKit re-measure — and never double-counts or fights the scroller.
+            baseContentHeight = textOnlyContentHeight + topContentInset
             applyManagedFrameSize(width: frame.size.width)
-            if let clip, let savedOrigin, clip.bounds.origin != savedOrigin {
-                clip.setBoundsOrigin(savedOrigin)
-                enclosingScrollView?.reflectScrolledClipView(clip)
+            // Clamp only when the header isn't animating: clamping on every tick
+            // re-anchors the scroller and can yank the body. The animation clamps
+            // once at settle.
+            if (delegate as? NativeTextViewCoordinator)?.headerAnimTimer == nil {
+                (enclosingScrollView as? ClampedScrollView)?.clampToInsets()
             }
-            (enclosingScrollView as? ClampedScrollView)?.clampToInsets()
             needsDisplay = true
         }
     }

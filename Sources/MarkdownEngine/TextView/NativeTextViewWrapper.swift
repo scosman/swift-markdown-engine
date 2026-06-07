@@ -452,82 +452,114 @@ private extension NativeTextViewWrapper {
         host.translatesAutoresizingMaskIntoConstraints = false
         clip.addSubview(host)
 
-        let collapsed = max(0, headerCollapsedHeight)
-        let heightC = clip.heightAnchor.constraint(equalToConstant: collapsed)
+        // Two height options for the clip; exactly one is active at a time.
+        //  • equality: clip.height == host.height  → expanded, tracks content live.
+        //  • constant: clip.height == <value>      → collapsed, or animating.
+        let equalityC = clip.heightAnchor.constraint(equalTo: host.heightAnchor)
+        let constantC = clip.heightAnchor.constraint(equalToConstant: max(0, headerCollapsedHeight))
         NSLayoutConstraint.activate([
             clip.topAnchor.constraint(equalTo: textView.topAnchor),
             clip.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
             clip.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
-            heightC,
             // Host is full-height (top-pinned); overflow below the clip is hidden.
             host.topAnchor.constraint(equalTo: clip.topAnchor),
             host.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             host.trailingAnchor.constraint(equalTo: clip.trailingAnchor)
         ])
+        if headerExpanded { equalityC.isActive = true } else { constantC.isActive = true }
 
         coord.headerHostingView = host
         coord.headerClipView = clip
-        coord.headerHeightConstraint = heightC
+        coord.headerEqualityConstraint = equalityC
+        coord.headerConstantConstraint = constantC
         coord.headerDocumentId = documentId
+        coord.lastHeaderExpanded = headerExpanded
 
+        // SOLE writer of topContentInset: the clip's height drives the reserved
+        // region. Synchronous (queue nil) so the body tracks the header with no lag.
         coord.headerContentObserver = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: clip, queue: .main
+            forName: NSView.frameDidChangeNotification, object: clip, queue: nil
         ) { [weak clip, weak native] _ in
             guard let clip, let native else { return }
-            native.topContentInset = clip.frame.height
+            let h = clip.frame.height
+            guard abs(native.topContentInset - h) > 0.5 else { return }
+            native.topContentInset = h
         }
 
-        // Set the correct initial height (no animation on first appearance).
         textView.layoutSubtreeIfNeeded()
-        let full = max(collapsed, host.frame.height)
-        heightC.constant = headerExpanded ? full : collapsed
-        textView.layoutSubtreeIfNeeded()
-        native.topContentInset = heightC.constant
-        coord.lastHeaderExpanded = headerExpanded
+        native.topContentInset = clip.frame.height
     }
 
     func applyExpansion(textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
-        guard let heightC = coord.headerHeightConstraint, let host = coord.headerHostingView else { return }
+        guard let equalityC = coord.headerEqualityConstraint,
+              let constantC = coord.headerConstantConstraint,
+              let clip = coord.headerClipView,
+              let host = coord.headerHostingView else { return }
         let collapsed = max(0, headerCollapsedHeight)
-        let full = max(collapsed, host.frame.height)
-        let target = headerExpanded ? full : collapsed
 
         if coord.lastHeaderExpanded != headerExpanded {
             coord.lastHeaderExpanded = headerExpanded
-            animateHeader(to: target, textView: textView, native: native, coord: coord)
-        } else if coord.headerAnimTimer == nil, abs(heightC.constant - target) > 0.5 {
-            // Target drifted while not animating (heading/content height changed).
-            heightC.constant = target
+            // Hand the clip height to the animatable constant constraint.
+            let start = clip.frame.height
+            equalityC.isActive = false
+            constantC.constant = start
+            constantC.isActive = true
+            let target: CGFloat
+            if headerExpanded {
+                host.invalidateIntrinsicContentSize()
+                host.layoutSubtreeIfNeeded()
+                target = max(collapsed, host.fittingSize.height)
+            } else {
+                target = collapsed
+            }
+            animateHeader(to: target, expandedAfter: headerExpanded,
+                          textView: textView, native: native, coord: coord)
+        } else if !headerExpanded, coord.headerAnimTimer == nil, constantC.isActive,
+                  abs(constantC.constant - collapsed) > 0.5 {
+            // Collapsed steady: keep the constant in sync with the heading height.
+            constantC.constant = collapsed
             textView.layoutSubtreeIfNeeded()
-            native.topContentInset = target
         }
+        // Expanded steady: the equality constraint already tracks the content.
     }
 
-    func animateHeader(to target: CGFloat, textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
-        guard let heightC = coord.headerHeightConstraint else { return }
+    func animateHeader(to target: CGFloat, expandedAfter: Bool,
+                       textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
+        guard let constantC = coord.headerConstantConstraint else { return }
         coord.headerAnimTimer?.invalidate()
-        let start = heightC.constant
+        let start = constantC.constant
+
+        func settle() {
+            coord.headerAnimTimer = nil
+            if expandedAfter, let equalityC = coord.headerEqualityConstraint {
+                // Hand back to the live-tracking equality constraint.
+                constantC.isActive = false
+                equalityC.isActive = true
+                textView.layoutSubtreeIfNeeded()
+            }
+            // One clamp once the height has settled (skipped during the animation).
+            (textView.enclosingScrollView as? ClampedScrollView)?.clampToInsets()
+        }
+
         guard abs(target - start) > 0.5 else {
-            heightC.constant = target
+            constantC.constant = target
             textView.layoutSubtreeIfNeeded()
-            native.topContentInset = target
+            settle()
             return
         }
         let duration: CGFloat = 0.32
         var progress: CGFloat = 0
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak textView, weak native, weak coord] t in
-            guard let textView, let native, let coord, let heightC = coord.headerHeightConstraint else {
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak textView, weak coord] t in
+            guard let textView, let coord, let constantC = coord.headerConstantConstraint else {
                 t.invalidate(); return
             }
             progress = min(1, progress + (1.0 / 60.0) / duration)
             let eased = progress < 0.5 ? 2 * progress * progress : 1 - pow(-2 * progress + 2, 2) / 2
-            let h = start + (target - start) * eased
-            heightC.constant = h
-            textView.layoutSubtreeIfNeeded()
-            native.topContentInset = h
+            constantC.constant = start + (target - start) * eased
+            textView.layoutSubtreeIfNeeded()   // → clip frame change → clip observer → topContentInset
             if progress >= 1 {
                 t.invalidate()
-                coord.headerAnimTimer = nil
+                settle()
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -542,7 +574,8 @@ private extension NativeTextViewWrapper {
         coord.headerClipView?.removeFromSuperview()
         coord.headerClipView = nil
         coord.headerHostingView = nil
-        coord.headerHeightConstraint = nil
+        coord.headerEqualityConstraint = nil
+        coord.headerConstantConstraint = nil
         coord.headerDocumentId = nil
         coord.lastHeaderExpanded = nil
         native.topContentInset = 0

@@ -43,16 +43,18 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     // MARK: Header
     /// Hosts the embedder's full header content, top-pinned inside `headerClipView`.
     var headerHostingView: NSView?
-    /// Clip container whose height is the reserved top inset. Collapsing animates
-    /// this height between the collapsed (heading) height and the full content
-    /// height, revealing/hiding the lower content while the heading stays put.
+    /// Clip container whose height is the reserved top inset. Reveals/hides the
+    /// lower content while the heading stays put.
     var headerClipView: NSView?
-    /// Animatable height constraint of `headerClipView`.
-    var headerHeightConstraint: NSLayoutConstraint?
+    /// Active when expanded: `clip.height == host.height`, so the reserved region
+    /// always equals the content's (async-resolved) intrinsic height — self-correcting.
+    var headerEqualityConstraint: NSLayoutConstraint?
+    /// Active when collapsed or animating: `clip.height == constant`. The 60fps timer
+    /// drives `.constant`; on expand-settle we hand back to the equality constraint.
+    var headerConstantConstraint: NSLayoutConstraint?
     /// Drives the collapse/expand animation frame-by-frame.
     var headerAnimTimer: Timer?
-    /// Observes the hosted content's height (e.g. tags added) to keep the reserved
-    /// height correct while expanded.
+    /// Observes the clip container's height; the SOLE writer of `topContentInset`.
     var headerContentObserver: NSObjectProtocol?
     /// Last documentId for which the SwiftUI header rootView was rebuilt.
     var headerDocumentId: String?
