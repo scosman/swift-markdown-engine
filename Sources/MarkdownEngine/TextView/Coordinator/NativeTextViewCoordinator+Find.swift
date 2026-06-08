@@ -43,9 +43,31 @@ extension NativeTextViewCoordinator {
             tlm.ensureLayout(for: tlm.documentRange)
         }
 
-        // Scroll to current match
-        if range.location + range.length <= fullRange.length {
+        // Scroll the current match into view.
+        guard range.location + range.length <= fullRange.length else { return }
+        // Default (text view IS documentView): native reveal — unchanged for non-readingWidth embedders.
+        guard configuration.readingWidth != nil,
+              let tlm = tv.textLayoutManager,
+              let scrollView = tv.enclosingScrollView,
+              let matchStart = tlm.textContentManager?.location(tlm.documentRange.location, offsetBy: range.location) else {
             tv.scrollRangeToVisible(range)
+            return
+        }
+        // Reading column: text view is a centered subview of the container — scroll the clip explicitly.
+        tlm.enumerateTextLayoutFragments(from: matchStart, options: [.ensuresLayout]) { fragment in
+            let cv = scrollView.contentView
+            let insetsTop = scrollView.contentInsets.top
+            let frame = fragment.layoutFragmentFrame
+            let visibleTop = cv.bounds.origin.y + insetsTop
+            let visibleBottom = cv.bounds.origin.y + cv.bounds.height
+            // Only scroll when the match is off-screen; reveal it a little below the top.
+            if frame.minY < visibleTop || frame.maxY > visibleBottom {
+                let targetY = frame.minY - insetsTop - cv.bounds.height * 0.2
+                cv.scroll(to: NSPoint(x: cv.bounds.origin.x, y: targetY))
+                scrollView.reflectScrolledClipView(cv)
+                (scrollView as? ClampedScrollView)?.clampToInsets()
+            }
+            return false
         }
     }
 

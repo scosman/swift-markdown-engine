@@ -216,7 +216,38 @@ extension NativeTextView {
             suppressAutoRevealOnce = false
             return
         }
-        super.scrollRangeToVisible(range)
+        // Only the reading column needs manual reveal; default keeps AppKit's native implementation.
+        guard configuration.readingWidth != nil else {
+            super.scrollRangeToVisible(range)
+            return
+        }
+        // Explicit reveal: native scrollRangeToVisible can't position the container's centered subview.
+        guard let tlm = textLayoutManager,
+              let scrollView = enclosingScrollView,
+              let start = tlm.textContentManager?.location(tlm.documentRange.location, offsetBy: range.location) else {
+            super.scrollRangeToVisible(range)
+            return
+        }
+        tlm.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            let cv = scrollView.contentView
+            let insetsTop = scrollView.contentInsets.top
+            let frame = fragment.layoutFragmentFrame
+            let visibleTop = cv.bounds.origin.y + insetsTop
+            let visibleBottom = cv.bounds.origin.y + cv.bounds.height
+            let margin: CGFloat = 24
+            let targetY: CGFloat
+            if frame.minY < visibleTop {
+                targetY = frame.minY - insetsTop - margin
+            } else if frame.maxY > visibleBottom {
+                targetY = frame.maxY - cv.bounds.height + margin
+            } else {
+                return false   // already visible
+            }
+            cv.scroll(to: NSPoint(x: cv.bounds.origin.x, y: targetY))
+            scrollView.reflectScrolledClipView(cv)
+            (scrollView as? ClampedScrollView)?.clampToInsets()
+            return false
+        }
     }
 
     /// Force TextKit 2 to lay out all fragments within the current visible rect.
