@@ -37,46 +37,6 @@ final class NativeTextView: NSTextView {
     var maxOverscrollPoints: CGFloat = MarkdownEditorConfiguration.default.overscroll.maxPoints
     var minOverscrollPoints: CGFloat = MarkdownEditorConfiguration.default.overscroll.minPoints
 
-    // MARK: Top header reservation
-    /// The measured text content height *excluding* the header reservation. Cached
-    /// by `measuredBaseContentHeight` so that changing `topContentInset` is a cheap,
-    /// consistent recompute (`baseContentHeight = textOnlyContentHeight + inset`)
-    /// rather than a second, divergent accounting of the content height.
-    var textOnlyContentHeight: CGFloat = 0
-
-    /// Empty space reserved at the very top of the content for an embedder-supplied
-    /// header view (see ``NativeTextViewWrapper`` `header:`). The text is shifted
-    /// down by this amount via `textContainerOrigin` and the measured content height
-    /// grows to match, so a header subview placed in `[0, topContentInset]` lives
-    /// inside the text view's bounds — hit-tested normally — and scrolls with the
-    /// body. Driven internally by the wrapper from the header's intrinsic height.
-    var topContentInset: CGFloat = 0 {
-        didSet {
-            guard abs(topContentInset - oldValue) > 0.01 else { return }
-            // Single source of truth, identical to `measuredBaseContentHeight`:
-            // total content height = text height + reserved header. Cheap — no
-            // TextKit re-measure — and never double-counts or fights the scroller.
-            baseContentHeight = textOnlyContentHeight + topContentInset
-            applyManagedFrameSize(width: frame.size.width)
-            // Clamp only when the header isn't animating: clamping on every tick
-            // re-anchors the scroller and can yank the body. The animation clamps
-            // once at settle.
-            if (delegate as? NativeTextViewCoordinator)?.headerAnimTimer == nil {
-                (enclosingScrollView as? ClampedScrollView)?.clampToInsets()
-            }
-            needsDisplay = true
-        }
-    }
-
-    /// Shift all text down by `topContentInset` so the reserved header region at the
-    /// top stays empty. The engine already routes every click / cursor-rect
-    /// conversion through `textContainerOrigin`, so this offset is honored
-    /// consistently across drawing, hit-mapping, and caret math.
-    override var textContainerOrigin: NSPoint {
-        let base = super.textContainerOrigin
-        return NSPoint(x: base.x, y: base.y + topContentInset)
-    }
-
     // MARK: Editor wiring
     var onPasteImage: ((NSPasteboard) -> String?)?
     weak var layoutBridge: LayoutBridge?

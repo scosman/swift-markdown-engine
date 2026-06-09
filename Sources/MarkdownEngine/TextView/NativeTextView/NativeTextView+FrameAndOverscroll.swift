@@ -96,16 +96,16 @@ extension NativeTextView {
         }
 
         let rawHeight = max(segmentMaxY, fragmentMaxY)
-        // Cache the text-only height, then add the reserved top header space so the
-        // content (and scroll range) includes the header region the text sits below.
-        let textHeight = max(ceil(rawHeight + (textContainerInset.height * 2)), minimumContentHeight)
-        textOnlyContentHeight = textHeight
-        return textHeight + topContentInset
+        return max(ceil(rawHeight + (textContainerInset.height * 2)), minimumContentHeight)
     }
 
     func applyManagedFrameSize(width: CGFloat) {
         let contentHeight = max(ceil(baseContentHeight + activeBottomOverscroll), 0)
-        let scrollViewHeight = enclosingScrollView?.contentView.bounds.height ?? 0
+        // The container stacks a header band ABOVE this text view, so the text view only
+        // needs to fill the viewport MINUS that band for the whole document view to fill
+        // the viewport on short docs (header + textView ≥ viewport).
+        let headerH = (superview as? NativeTextViewContainer)?.headerHeight ?? 0
+        let scrollViewHeight = max((enclosingScrollView?.contentView.bounds.height ?? 0) - headerH, 0)
         let targetSize = NSSize(
             width: max(width, 0),
             height: max(contentHeight, scrollViewHeight)
@@ -116,6 +116,9 @@ extension NativeTextView {
         isApplyingManagedFrameSize = true
         super.setFrameSize(targetSize)
         isApplyingManagedFrameSize = false
+        // Tell the container our height changed so it can re-stack (move us below the
+        // header) and size itself. Re-entrancy is guarded inside the container.
+        (superview as? NativeTextViewContainer)?.textViewDidResize()
     }
 
     override func setFrameSize(_ newSize: NSSize) {

@@ -75,8 +75,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
 
     /// SwiftUI header hosted above the body and scrolling with it. The engine owns
     /// an `NSHostingView`, reserves its (intrinsic) height at the top of the text
-    /// content, and refreshes its `rootView` when `documentId` changes. Because the
-    /// header lives inside the text view's bounds, it is fully interactive. Inject
+    /// content, and refreshes its `rootView` when `documentId` changes. The header is
+    /// a sibling of the text view in the scrolled container, so it is fully interactive. Inject
     /// any required SwiftUI environment into this content before passing it in.
     public var header: AnyView?
     /// Core (AppKit) alternative to ``header``: a raw NSView hosted in the same
@@ -182,25 +182,17 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         textView.postsFrameChangedNotifications = true
         textView.autoresizingMask = [.width]
         textView.backgroundColor = .clear
-        // Layer-back the scrolled document view so an embedder-supplied header
-        // (hosted in a layer-backed clip subview, see `buildHeader`) and the body
-        // text composite within ONE Core Animation tree and advance on the same
-        // commit. Without this the header is a CA-sublayer island inside a
-        // non-layer-backed, transparent text view: during a live scroll the header
-        // layer is repositioned by Core Animation while the body strip just below
-        // the reserved band is repainted synchronously by TextKit on a different
-        // cadence, so for a frame the freshly-drawn body shows through where the
-        // header's lower rows belong (the inline inspector's summary row dropping
-        // out mid-scroll). `.onSetNeedsDisplay` keeps TextKit caret/selection
-        // redraw on-demand rather than re-rasterizing on every bounds change.
+        // Layer-back the text view for smooth scrolling. The scroll-away header is now
+        // a SIBLING of the text view inside the container (`NativeTextViewContainer`),
+        // not a subview, so no cross-layer unification with the header is needed — they
+        // occupy disjoint frames and cannot composite over each other.
         textView.wantsLayer = true
         textView.layerContentsRedrawPolicy = .onSetNeedsDisplay
-        // TEMP (remove before merge): one-shot startup marker so a tester can
-        // confirm in the console that a FRESH engine build is running — Xcode
-        // aggressively serves stale local-package builds; if this line is absent,
-        // delete ~/Library/Developer/Xcode/DerivedData/Nodes-* and rebuild.
-        NSLog("⟦NODES-ENGINE⟧ editor created — wantsLayer=%@ — build=header-compositing-fix-1",
-              textView.wantsLayer ? "true" : "false")
+        // Clip the body to the text view's bounds so responsive-scroll OVERDRAW can't
+        // render text ABOVE the text view's frame top (into the header band that sits
+        // above it). NSView does NOT clip to bounds by default; without this the body
+        // bleeds up over the collapsed header even though the FRAMES are disjoint.
+        textView.clipsToBounds = true
         let font = NSFont(name: fontName, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
         textView.font = font
         textView.baseFont = font
@@ -220,7 +212,20 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         context.coordinator.layoutBridge = bridge
         textView.layoutBridge = bridge
 
-        scrollView.documentView = textView
+        // The document view is a container that stacks the (optional) scroll-away header
+        // ABOVE the text view as siblings (see `NativeTextViewContainer`). The text view
+        // keeps managing its own height; the container offsets it below the header band
+        // and sizes itself to the sum. This makes body/header overlap geometrically
+        // impossible (disjoint frames), replacing the old in-text-view header hosting.
+        let vpSize = scrollView.contentView.bounds.size
+        let container = NativeTextViewContainer(frame: NSRect(origin: .zero, size: vpSize))
+        container.autoresizingMask = [.width]
+        container.clipsToBounds = true
+        container.textView = textView
+        textView.autoresizingMask = []   // width + origin are driven by the container
+        textView.frame = NSRect(x: 0, y: 0, width: vpSize.width, height: textView.frame.height)
+        container.addSubview(textView)
+        scrollView.documentView = container
         // Force full-document layout at init so paragraph heights are known
         // upfront; otherwise TextKit 2 viewport layout causes scroll drift.
         textLayoutManager.ensureLayout(for: textLayoutManager.documentRange)
@@ -247,15 +252,17 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
                 context.coordinator.updateCodeBlockSelection(textView: textView)
             }
             // Only react with overscroll recalc when the viewport itself resizes
-            // (window resize). Without this guard, TextKit-induced textView frame
-            // changes echo back here and re-trigger recalcOverscroll, causing a
-            // 149pt height oscillation after clicks.
-            guard abs(textView.frame.height - scrollView.contentView.bounds.height) > 1 else { return }
+            // (window resize). Without this guard, TextKit-induced frame changes echo
+            // back here and re-trigger recalcOverscroll, causing a 149pt height
+            // oscillation after clicks. Compare the CONTAINER (the document view) height
+            // to the viewport — it tracks the viewport for short docs.
+            guard let container = scrollView.documentView as? NativeTextViewContainer,
+                  abs(container.frame.height - scrollView.contentView.bounds.height) > 1 else { return }
             textView.recalcOverscroll(for: scrollView)
             scrollView.clampToInsets()
         }
         NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil) { _ in
-            (textView as? NativeTextView)?.ensureVisibleLayout()
+            textView.ensureVisibleLayout()
             if context.coordinator.isWritingToolsActive {
                 context.coordinator.fixWritingToolsChildWindowIfNeeded(textView: textView)
             }
@@ -268,7 +275,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSScrollView, context: Context) {
-        guard let textView = nsView.documentView as? NSTextView else { return }
+        guard let container = nsView.documentView as? NativeTextViewContainer,
+              let textView = container.textView else { return }
         reconcileHeader(textView: textView, context: context)
 
         let isNodeSwitch = context.coordinator.documentId != documentId
@@ -288,9 +296,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             return
         }
 
-        if let bottomTextView = nsView.documentView as? NativeTextView {
-            bottomTextView.onPasteImage = onPasteImage
-        }
+        textView.onPasteImage = onPasteImage
         if nsView.hasVerticalScroller != configuration.scrollers.hasVerticalScroller {
             nsView.hasVerticalScroller = configuration.scrollers.hasVerticalScroller
         }
@@ -319,7 +325,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             context.coordinator.lastImageFingerprint = newImageFingerprint
             context.coordinator.lastWikiFingerprint = newWikiFingerprint
             context.coordinator.configuration.services = configuration.services
-            (nsView.documentView as? NativeTextView)?.configuration.services = configuration.services
+            textView.configuration.services = configuration.services
             // Only an image change needs a layout re-measure; a wiki-link rename is style-only.
             if imageChanged, let tlm = textView.textLayoutManager {
                 tlm.invalidateLayout(for: tlm.documentRange)
@@ -361,7 +367,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             context.coordinator.didEnsureLayoutForCurrentDocument = false
             context.coordinator.resetImageEmbedState()
             // Drop old document's wide-table overlays synchronously.
-            (textView as? NativeTextView)?.removeAllWideTableOverlays()
+            textView.removeAllWideTableOverlays()
             // Reset scroll to top of content so the previous file's scrollY
             // doesn't leak into a (potentially shorter) new file.
             nsView.contentView.scroll(to: NSPoint(x: 0, y: -nsView.contentInsets.top))
@@ -371,11 +377,9 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
 
         let font = NSFont(name: fontName, size: fontSize) ?? NSFont.systemFont(ofSize: fontSize)
         textView.font = font
-        if let tv = nsView.documentView as? NativeTextView {
-            tv.baseFont = font
-            tv.recalcOverscroll(for: nsView)
-            (nsView as? ClampedScrollView)?.clampToInsets()
-        }
+        textView.baseFont = font
+        textView.recalcOverscroll(for: nsView)
+        (nsView as? ClampedScrollView)?.clampToInsets()
 
         // Sync coordinator's font fields BEFORE the rebuild so the helper
         // reads the current values from the View struct.
@@ -386,14 +390,10 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
             from: text,
             invalidateLayout: isNodeSwitch
         )
-        if let tv = nsView.documentView as? NativeTextView {
-            tv.recalcOverscroll(for: nsView)
-            (nsView as? ClampedScrollView)?.clampToInsets()
-        }
+        textView.recalcOverscroll(for: nsView)
+        (nsView as? ClampedScrollView)?.clampToInsets()
         DispatchQueue.main.async {
-            if let tv = nsView.documentView as? NativeTextView {
-                context.coordinator.updateCodeBlockSelection(textView: tv)
-            }
+            context.coordinator.updateCodeBlockSelection(textView: textView)
         }
 
         context.coordinator.onCaretRectChange = onCaretRectChange
@@ -441,7 +441,7 @@ private extension NativeTextViewWrapper {
         }
 
         if coord.headerClipView == nil {
-            buildHeader(textView: textView, native: native, coord: coord)
+            buildHeader(native: native, coord: coord)
         } else if coord.headerDocumentId != documentId,
                   let h = header,
                   let hv = coord.headerHostingView as? NSHostingView<AnyView> {
@@ -449,14 +449,21 @@ private extension NativeTextViewWrapper {
             coord.headerDocumentId = documentId
         }
 
-        applyExpansion(textView: textView, native: native, coord: coord)
+        applyExpansion(textView: textView, coord: coord)
     }
 
-    func buildHeader(textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
+    func buildHeader(native: NativeTextView, coord: NativeTextViewCoordinator) {
+        guard let container = native.superview as? NativeTextViewContainer else { return }
         let host: NSView
         if let header {
             let h = NSHostingView(rootView: header)
             if #available(macOS 13.0, *) { h.sizingOptions = [.intrinsicContentSize] }
+            // Ignore the window safe area (the toolbar/navbar region). Otherwise, as the
+            // host scrolls relative to that safe area, SwiftUI adds/removes a TOP inset to
+            // "flow under the navbar" — which shifts the content down inside the host and
+            // pushes the collapsed summary/tags row below the clip mask (the "sliding
+            // window"), and makes the measured intrinsic height oscillate with scrollY.
+            if #available(macOS 13.3, *) { h.safeAreaRegions = [] }
             host = h
         } else if let headerView {
             host = headerView
@@ -466,7 +473,11 @@ private extension NativeTextViewWrapper {
         clip.translatesAutoresizingMaskIntoConstraints = false
         clip.clipsToBounds = true
         clip.postsFrameChangedNotifications = true
-        textView.addSubview(clip)
+        // The clip is a SIBLING of the text view inside the container (top band), not a
+        // subview of the text view. Auto-Layout-pinned to the container's top/leading/
+        // trailing; its height is owned by the equality/constant constraints below and
+        // read back into `container.headerHeight`.
+        container.addSubview(clip)
 
         host.translatesAutoresizingMaskIntoConstraints = false
         clip.addSubview(host)
@@ -477,9 +488,9 @@ private extension NativeTextViewWrapper {
         let equalityC = clip.heightAnchor.constraint(equalTo: host.heightAnchor)
         let constantC = clip.heightAnchor.constraint(equalToConstant: max(0, headerCollapsedHeight))
         NSLayoutConstraint.activate([
-            clip.topAnchor.constraint(equalTo: textView.topAnchor),
-            clip.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
-            clip.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
+            clip.topAnchor.constraint(equalTo: container.topAnchor),
+            clip.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            clip.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             // Host is full-height (top-pinned); overflow below the clip is hidden.
             host.topAnchor.constraint(equalTo: clip.topAnchor),
             host.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
@@ -494,30 +505,27 @@ private extension NativeTextViewWrapper {
         coord.headerDocumentId = documentId
         coord.lastHeaderExpanded = headerExpanded
 
-        // SOLE writer of topContentInset: the clip's height drives the reserved
-        // region. Synchronous (queue nil) so the body tracks the header with no lag.
+        // SOLE writer of `container.headerHeight`: the clip's height drives the header
+        // band, which the container reads to offset the text view. Synchronous (queue
+        // nil) so the body tracks the header with no lag.
         //
-        // While the *constant* constraint governs (collapsed, or mid-animation) the
-        // reserved height is its `.constant` — the intended, stable value — NOT the
-        // live `clip.frame.height`. The text view is autoresizing-mask driven while
-        // the clip is Auto-Layout-pinned to it, so a scroll-time layout pass can
-        // momentarily expose a smaller in-flight clip frame before the required
-        // constant re-settles. Trusting that transient would shrink topContentInset
-        // and slide the body up under the heading (clipping the summary row +
-        // chevron). Reading the constant instead keeps the collapsed reservation
-        // rock-stable through scrolling. When expanded, the equality constraint is
-        // active and `clip.frame.height` (== host height) is the live source.
+        // While the *constant* constraint governs (collapsed, or mid-animation) the band
+        // height is its `.constant` — the intended, stable value — NOT the live
+        // `clip.frame.height`, which a scroll-time layout pass can momentarily expose
+        // smaller before the constant re-settles. Reading the constant keeps the
+        // collapsed band rock-stable. When expanded, the equality constraint is active
+        // and `clip.frame.height` (== host height) is the live source.
         coord.headerContentObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification, object: clip, queue: nil
-        ) { [weak clip, weak native, weak coord] _ in
-            guard let clip, let native else { return }
+        ) { [weak clip, weak container, weak coord] _ in
+            guard let clip, let container else { return }
             let h = Self.reservedHeaderHeight(clip: clip, coord: coord)
-            guard abs(native.topContentInset - h) > 0.5 else { return }
-            native.topContentInset = h
+            guard abs(container.headerHeight - h) > 0.5 else { return }
+            container.headerHeight = h
         }
 
-        textView.layoutSubtreeIfNeeded()
-        native.topContentInset = Self.reservedHeaderHeight(clip: clip, coord: coord)
+        container.layoutSubtreeIfNeeded()
+        container.headerHeight = Self.reservedHeaderHeight(clip: clip, coord: coord)
     }
 
     /// The reserved top inset the body should sit below. When the constant
@@ -530,7 +538,7 @@ private extension NativeTextViewWrapper {
         return clip.frame.height
     }
 
-    func applyExpansion(textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
+    func applyExpansion(textView: NSTextView, coord: NativeTextViewCoordinator) {
         guard let equalityC = coord.headerEqualityConstraint,
               let constantC = coord.headerConstantConstraint,
               let clip = coord.headerClipView,
@@ -553,18 +561,18 @@ private extension NativeTextViewWrapper {
                 target = collapsed
             }
             animateHeader(to: target, expandedAfter: headerExpanded,
-                          textView: textView, native: native, coord: coord)
+                          textView: textView, coord: coord)
         } else if !headerExpanded, coord.headerAnimTimer == nil, constantC.isActive,
                   abs(constantC.constant - collapsed) > 0.5 {
             // Collapsed steady: keep the constant in sync with the heading height.
             constantC.constant = collapsed
-            textView.layoutSubtreeIfNeeded()
+            clip.superview?.layoutSubtreeIfNeeded()
         }
         // Expanded steady: the equality constraint already tracks the content.
     }
 
     func animateHeader(to target: CGFloat, expandedAfter: Bool,
-                       textView: NSTextView, native: NativeTextView, coord: NativeTextViewCoordinator) {
+                       textView: NSTextView, coord: NativeTextViewCoordinator) {
         guard let constantC = coord.headerConstantConstraint else { return }
         coord.headerAnimTimer?.invalidate()
         let start = constantC.constant
@@ -575,7 +583,7 @@ private extension NativeTextViewWrapper {
                 // Hand back to the live-tracking equality constraint.
                 constantC.isActive = false
                 equalityC.isActive = true
-                textView.layoutSubtreeIfNeeded()
+                coord.headerClipView?.superview?.layoutSubtreeIfNeeded()
             }
             // One clamp once the height has settled (skipped during the animation).
             (textView.enclosingScrollView as? ClampedScrollView)?.clampToInsets()
@@ -583,7 +591,7 @@ private extension NativeTextViewWrapper {
 
         guard abs(target - start) > 0.5 else {
             constantC.constant = target
-            textView.layoutSubtreeIfNeeded()
+            coord.headerClipView?.superview?.layoutSubtreeIfNeeded()
             settle()
             return
         }
@@ -596,7 +604,8 @@ private extension NativeTextViewWrapper {
             progress = min(1, progress + (1.0 / 60.0) / duration)
             let eased = progress < 0.5 ? 2 * progress * progress : 1 - pow(-2 * progress + 2, 2) / 2
             constantC.constant = start + (target - start) * eased
-            textView.layoutSubtreeIfNeeded()   // → clip frame change → clip observer → topContentInset
+            // → clip height change → clip frameDidChange → observer → container.headerHeight → restack.
+            coord.headerClipView?.superview?.layoutSubtreeIfNeeded()
             if progress >= 1 {
                 t.invalidate()
                 settle()
@@ -618,6 +627,8 @@ private extension NativeTextViewWrapper {
         coord.headerConstantConstraint = nil
         coord.headerDocumentId = nil
         coord.lastHeaderExpanded = nil
-        native.topContentInset = 0
+        if let container = native.superview as? NativeTextViewContainer {
+            container.headerHeight = 0   // → restack: text view back to y=0, container shrinks
+        }
     }
 }

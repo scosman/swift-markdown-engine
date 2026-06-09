@@ -54,7 +54,7 @@ public final class NativeTextViewCoordinator: NSObject, NSTextViewDelegate {
     var headerConstantConstraint: NSLayoutConstraint?
     /// Drives the collapse/expand animation frame-by-frame.
     var headerAnimTimer: Timer?
-    /// Observes the clip container's height; the SOLE writer of `topContentInset`.
+    /// Observes the header clip's height; the SOLE writer of `container.headerHeight`.
     var headerContentObserver: NSObjectProtocol?
     /// Last documentId for which the SwiftUI header rootView was rebuilt.
     var headerDocumentId: String?
@@ -288,7 +288,17 @@ extension NSTextView {
         let containerOrigin = textContainerOrigin
         boundingRect.origin.x += containerOrigin.x
         boundingRect.origin.y += containerOrigin.y
+        // The text view now sits BELOW a header band inside a container document view,
+        // so its glyph rects (text-view-local) must be lifted into the document view's
+        // space before subtracting the scroll offset (which is in document-view space).
+        // `convert(.zero, to: doc)` yields (0, headerHeight); it self-zeroes if this text
+        // view ever IS the document view (header-less / legacy).
         if let scrollView = enclosingScrollView {
+            if let doc = scrollView.documentView, doc !== self {
+                let originInDoc = convert(CGPoint.zero, to: doc)
+                boundingRect.origin.x += originInDoc.x
+                boundingRect.origin.y += originInDoc.y
+            }
             let contentOffset = scrollView.contentView.bounds.origin
             boundingRect.origin.x -= contentOffset.x
             boundingRect.origin.y -= contentOffset.y
