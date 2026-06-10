@@ -224,6 +224,40 @@ NativeTextViewWrapper(
   replacement (e.g. an autocomplete result); the engine consumes it
   and clears the binding.
 
+### Scrolling Header
+
+Host a SwiftUI view above the document body that scrolls away with it —
+document metadata, a property table, a contextual toolbar:
+
+```swift
+NativeTextViewWrapper(
+    text: $text,
+    header: AnyView(MyDocumentHeader(document: document)),
+    headerCollapsedHeight: 40,
+    headerExpanded: isHeaderExpanded
+)
+```
+
+- The engine hosts the view in an `NSHostingView`, reserves its
+  intrinsic height at the top of the scrolled content, and shifts the
+  body below it. The header is a sibling of the text view, so it stays
+  fully interactive (buttons, text fields, menus).
+- `headerExpanded: false` collapses the band to `headerCollapsedHeight`:
+  the top row stays visible while the rows below clip away. Toggling
+  animates the reveal. Size your header so the content above
+  `headerCollapsedHeight` is the part you want to keep visible.
+- The hosted content refreshes on every SwiftUI update — bind your
+  model into the header view as usual. Inject any required environment
+  (`.environmentObject`, `.environment`) into the view *before* wrapping
+  it in `AnyView`; the hosting view does not inherit your hierarchy's
+  environment.
+- Composes with `readingWidth`: the header spans the full viewport
+  width while the body keeps its centered column.
+- Pass `header: nil` (the default) and the editor renders exactly as
+  before — the header path adds nothing to header-less editors.
+
+The demo app's **Header** toolbar toggle shows the full behavior.
+
 ## Demo
 
 A runnable SwiftUI demo lives in [`Demo/`](Demo/MarkdownEngineDemo.xcodeproj).
