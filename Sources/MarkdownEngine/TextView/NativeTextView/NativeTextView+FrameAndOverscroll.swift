@@ -32,14 +32,7 @@ extension NativeTextView {
             forceFullLayout: pendingFullLayoutMeasure
         )
         let visibleHeight = scrollView.contentView.bounds.height
-        let policy = BottomOverscrollPolicy(
-            overscrollPercent: overscrollPercent,
-            minOverscrollPoints: minOverscrollPoints,
-            maxOverscrollPoints: maxOverscrollPoints,
-            activationStartFraction: configuration.overscroll.activationStartFraction,
-            activationRangeFraction: configuration.overscroll.activationRangeFraction
-        )
-        let resolvedOverscroll = policy.activeOverscroll(
+        let resolvedOverscroll = resolvedOverscroll(
             baseContentHeight: measured,
             visibleHeight: visibleHeight,
             lineHeight: lineHeight
@@ -53,6 +46,43 @@ extension NativeTextView {
         baseContentHeight = measured
         activeBottomOverscroll = resolvedOverscroll
         applyManagedFrameSize(width: targetWidth ?? frame.size.width)
+    }
+
+    /// Re-run the policy with the CURRENT base content height — no TextKit
+    /// re-measure. For header-band changes (runs per animation frame).
+    func reapplyOverscrollPolicy(for scrollView: NSScrollView) {
+        let lineHeight = layoutBridgeDefaultLineHeight(for: self.baseFont, using: layoutBridge)
+        let resolved = resolvedOverscroll(
+            baseContentHeight: baseContentHeight,
+            visibleHeight: scrollView.contentView.bounds.height,
+            lineHeight: lineHeight
+        )
+        guard abs(resolved - activeBottomOverscroll) > 0.5 else { return }
+        activeBottomOverscroll = resolved
+        applyManagedFrameSize(width: frame.size.width)
+    }
+
+    /// Shared policy evaluation, including the header band stacked above the text —
+    /// without it, a short text under an expanded band gets no slack.
+    private func resolvedOverscroll(
+        baseContentHeight: CGFloat,
+        visibleHeight: CGFloat,
+        lineHeight: CGFloat
+    ) -> CGFloat {
+        let headerHeight = (superview as? NativeTextViewContainer)?.headerHeight ?? 0
+        let policy = BottomOverscrollPolicy(
+            overscrollPercent: overscrollPercent,
+            minOverscrollPoints: minOverscrollPoints,
+            maxOverscrollPoints: maxOverscrollPoints,
+            activationStartFraction: configuration.overscroll.activationStartFraction,
+            activationRangeFraction: configuration.overscroll.activationRangeFraction
+        )
+        return policy.activeOverscroll(
+            baseContentHeight: baseContentHeight,
+            headerHeight: headerHeight,
+            visibleHeight: visibleHeight,
+            lineHeight: lineHeight
+        )
     }
 
     func measuredBaseContentHeight(minimumHeight: CGFloat, forceFullLayout: Bool = false) -> CGFloat {
@@ -69,11 +99,19 @@ extension NativeTextView {
         // Lay out the last fragment; gives a max-Y fallback if enumerateTextSegments misses it.
         var fragmentMaxY: CGFloat = 0
         var visited = 0
+        // Geometry of the fragment containing the document end — the extra line
+        // fragment normalization below needs its frame and line boxes.
+        var lastFragmentFrame: NSRect = .zero
+        var lastFragmentLineBoxes: [CGRect] = []
         textLayoutManager.enumerateTextLayoutFragments(
             from: documentEnd,
             options: [.reverse, .ensuresLayout, .ensuresExtraLineFragment]
         ) { fragment in
             let frame = fragment.layoutFragmentFrame
+            if visited == 0 {
+                lastFragmentFrame = frame
+                lastFragmentLineBoxes = fragment.textLineFragments.map { $0.typographicBounds }
+            }
             fragmentMaxY = max(fragmentMaxY, frame.maxY)
             // Trailing block image draws below TextKit's height; count its surface extent so it scrolls.
             let surfaceMaxY = frame.origin.y + fragment.renderingSurfaceBounds.maxY
@@ -86,16 +124,57 @@ extension NativeTextView {
         let segmentRange = NSTextRange(location: documentEnd)
         textLayoutManager.ensureLayout(for: segmentRange)
         var segmentMaxY: CGFloat = 0
+        var segmentMinY: CGFloat = 0
         textLayoutManager.enumerateTextSegments(
             in: segmentRange,
             type: .standard,
             options: .middleFragmentsExcluded
         ) { _, rect, _, _ in
-            segmentMaxY = max(segmentMaxY, rect.maxY)
+            if rect.maxY >= segmentMaxY {
+                segmentMaxY = rect.maxY
+                segmentMinY = rect.minY
+            }
             return true
         }
 
-        let rawHeight = max(segmentMaxY, fragmentMaxY)
+        var rawHeight = max(segmentMaxY, fragmentMaxY)
+
+        // With a trailing "\n", the last line is TextKit's extra line fragment.
+        // Its metrics follow the final newline's attributes — not the body style a
+        // typed line would get — so the measured height would jump on the first
+        // typed character. Normalize the empty last line to body metrics.
+        if segmentMaxY > 0, let storage = textStorage, storage.mutableString.hasSuffix("\n") {
+            let bodyLineHeight = ceil(layoutBridgeDefaultLineHeight(for: baseFont, using: layoutBridge))
+                + configuration.paragraph.lineHeightExtraSpacing
+
+            // TextKit omits the final paragraph's paragraphSpacing above the extra
+            // line fragment but inserts it once a real character follows — add the
+            // missing gap so typing stays height-neutral.
+            let ns = storage.mutableString
+            let lastParaRange = ns.paragraphRange(for: NSRange(location: ns.length - 1, length: 0))
+            let lastParaStyle = storage.attribute(
+                .paragraphStyle, at: lastParaRange.location, effectiveRange: nil
+            ) as? NSParagraphStyle
+            let paragraphSpacing = lastParaStyle?.paragraphSpacing ?? 0
+            let prevLineBottom: CGFloat
+            if lastFragmentLineBoxes.count >= 2 {
+                let secondToLast = lastFragmentLineBoxes[lastFragmentLineBoxes.count - 2]
+                prevLineBottom = lastFragmentFrame.minY + secondToLast.maxY
+            } else {
+                prevLineBottom = lastFragmentFrame.minY
+            }
+            let appliedGap = max(segmentMinY - prevLineBottom, 0)
+            let missingSpacing = max(paragraphSpacing - appliedGap, 0)
+            let normalizedEnd = segmentMinY + missingSpacing + bodyLineHeight
+            if abs(rawHeight - segmentMaxY) < 0.5 {
+                // The extra line itself is the bottom-most content — replace it.
+                rawHeight = normalizedEnd
+            } else {
+                // Something else (e.g. a trailing image surface) reaches lower — keep it.
+                rawHeight = max(rawHeight, normalizedEnd)
+            }
+        }
+
         return max(ceil(rawHeight + (textContainerInset.height * 2)), minimumContentHeight)
     }
 

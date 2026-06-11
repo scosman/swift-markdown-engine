@@ -52,7 +52,10 @@ struct NativeTextViewContainerTests {
         stack.container.headerHeight = 40
 
         #expect(stack.textView.frame.origin.y == 40)
-        #expect(stack.container.frame.height == 940)
+        // Band changes re-run the overscroll policy — assert slack-agnostic
+        // stacking so policy tuning can't break this test.
+        #expect(stack.textView.frame.height == 900 + stack.textView.activeBottomOverscroll)
+        #expect(stack.container.frame.height == 40 + stack.textView.frame.height)
     }
 
     @Test func containerNeverShrinksBelowViewport() {
@@ -82,7 +85,11 @@ struct NativeTextViewContainerTests {
 
         stack.container.headerHeight = 40
 
-        #expect(stack.container.scrollableContentHeight == 600)
+        // The band change re-runs the policy (slack > primed 60), while the primed
+        // base content height must survive un-clobbered (no re-measure).
+        #expect(stack.textView.activeBottomOverscroll > 60)
+        #expect(stack.container.scrollableContentHeight
+            == 40 + 500 + stack.textView.activeBottomOverscroll)
     }
 
     @Test func readingColumnKeepsCenteredXThroughRestacks() {

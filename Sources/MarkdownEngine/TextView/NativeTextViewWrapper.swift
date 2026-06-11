@@ -73,6 +73,11 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
     /// ``MarkdownEditorConfiguration/spellChecking`` on next launch.
     public var onSpellCheckingPolicyChanged: ((SpellCheckingPolicy) -> Void)?
 
+    /// Ghost text shown at the first-line position while the document is empty;
+    /// the first typed character hides it. Lives inside the scrolled content, so
+    /// it sits below the header band and tracks its expand/collapse animation.
+    public var placeholder: NSAttributedString?
+
     /// SwiftUI header hosted above the body and scrolling with it. The engine owns
     /// an `NSHostingView`, reserves its (intrinsic) height at the top of the text
     /// content, and refreshes the hosted content on every SwiftUI update. The header
@@ -103,6 +108,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         onInlineSelectionChange: ((InlineSelectionState?) -> Void)? = nil,
         onCodeBlockSelectionChange: (([CodeBlockSelection]) -> Void)? = nil,
         onSpellCheckingPolicyChanged: ((SpellCheckingPolicy) -> Void)? = nil,
+        placeholder: NSAttributedString? = nil,
         header: AnyView? = nil,
         headerCollapsedHeight: CGFloat = 0,
         headerExpanded: Bool = true
@@ -121,6 +127,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         self.onInlineSelectionChange = onInlineSelectionChange
         self.onCodeBlockSelectionChange = onCodeBlockSelectionChange
         self.onSpellCheckingPolicyChanged = onSpellCheckingPolicyChanged
+        self.placeholder = placeholder
         self.header = header
         self.headerCollapsedHeight = headerCollapsedHeight
         self.headerExpanded = headerExpanded
@@ -237,6 +244,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         context.coordinator.onCodeBlockSelectionChange = onCodeBlockSelectionChange
 
         textView.recalcOverscroll(for: scrollView)
+        textView.setPlaceholder(placeholder)
         // Initial reading-column centering; the resize observer below handles later changes.
         if configuration.readingWidth != nil {
             textView.centerReadingColumn(forClipWidth: scrollView.contentView.bounds.width)
@@ -300,6 +308,7 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         }
 
         textView.onPasteImage = onPasteImage
+        textView.setPlaceholder(placeholder)
         if nsView.hasVerticalScroller != configuration.scrollers.hasVerticalScroller {
             nsView.hasVerticalScroller = configuration.scrollers.hasVerticalScroller
         }
@@ -397,6 +406,8 @@ public struct NativeTextViewWrapper: NSViewRepresentable {
         )
         textView.recalcOverscroll(for: nsView)
         (nsView as? ClampedScrollView)?.clampToInsets()
+        // Document rebuilds bypass textDidChange — re-derive emptiness here.
+        textView.refreshPlaceholderVisibility()
         DispatchQueue.main.async {
             context.coordinator.updateCodeBlockSelection(textView: textView)
         }

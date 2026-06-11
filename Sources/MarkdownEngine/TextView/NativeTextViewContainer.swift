@@ -28,11 +28,17 @@ final class NativeTextViewContainer: NSView {
     var headerHeight: CGFloat = 0 {
         didSet {
             guard abs(headerHeight - oldValue) > 0.01 else { return }
-            // The text view's viewport-fill inflation depends on the band height
-            // (header + text view ≥ viewport, not viewport + band). Re-apply it FIRST
-            // so the restack below sizes the container against the corrected height —
-            // a short doc never grows a phantom scroll range when the band changes.
-            if let textView { textView.applyManagedFrameSize(width: textView.frame.width) }
+            if let textView {
+                // Band height feeds the overscroll activation — re-run the policy
+                // first (no re-measure; skipped when detached, e.g. teardown).
+                if let scrollView = enclosingScrollView {
+                    textView.reapplyOverscrollPolicy(for: scrollView)
+                }
+                // The viewport-fill inflation depends on the band height
+                // (header + text view ≥ viewport); re-apply before the restack so a
+                // short doc never grows a phantom scroll range.
+                textView.applyManagedFrameSize(width: textView.frame.width)
+            }
             restack(propagateWidth: false)
         }
     }
