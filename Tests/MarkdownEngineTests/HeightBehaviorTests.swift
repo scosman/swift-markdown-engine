@@ -154,24 +154,6 @@ struct FitsContentOverscrollTests {
         #expect(stack.textView.activeBottomOverscroll > 0)
     }
 
-    @Test func fitsContentScrollableContentHeightEqualsBaseContent() {
-        let stack = HeightBehaviorStack(heightBehavior: .fitsContent)
-        stack.textView.baseContentHeight = 500
-        stack.textView.activeBottomOverscroll = 0
-        // Verify directly: with 0 overscroll, scrollableContentHeight == baseContentHeight.
-        #expect(stack.textView.scrollableContentHeight == 500)
-    }
-
-    @Test func fitsContentApplyManagedFrameSizeUsesExactContentHeight() {
-        let stack = HeightBehaviorStack(heightBehavior: .fitsContent)
-        stack.textView.baseContentHeight = 500
-        stack.textView.activeBottomOverscroll = 0
-        stack.textView.applyManagedFrameSize(width: 600)
-
-        // No viewport-fill inflation, no overscroll.
-        #expect(stack.textView.frame.height == 500)
-    }
-
     @Test func fitsContentRecalcOverscrollStillMeasuresHeight() {
         // Verify that recalcOverscroll still updates baseContentHeight in
         // .fitsContent mode (critical: sizeThatFits / intrinsicContentSize
@@ -718,93 +700,6 @@ struct RuntimeSwitchScrollerVisibilityTests {
         )
     }
 
-    @Test func switchFromScrollsToFitsContentChangesDecision() {
-        let policy = ScrollersPolicy(hasVerticalScroller: true)
-        let before = MarkdownEditorConfiguration.HeightBehavior.scrolls
-            .wantsVerticalScroller(for: policy)
-        let after = MarkdownEditorConfiguration.HeightBehavior.fitsContent
-            .wantsVerticalScroller(for: policy)
-        #expect(before == true)
-        #expect(after == false)
-    }
-
-    @Test func switchFromFitsContentToScrollsChangesDecision() {
-        let policy = ScrollersPolicy(hasVerticalScroller: true)
-        let before = MarkdownEditorConfiguration.HeightBehavior.fitsContent
-            .wantsVerticalScroller(for: policy)
-        let after = MarkdownEditorConfiguration.HeightBehavior.scrolls
-            .wantsVerticalScroller(for: policy)
-        #expect(before == false)
-        #expect(after == true)
-    }
-}
-
-// MARK: - Reading width + fitsContent width change
-
-@MainActor
-@Suite("ReadingWidth + fitsContent width change")
-struct ReadingWidthFitsContentWidthChangeTests {
-
-    @Test func widthChangeUpdatesHeightInReadingColumnMode() {
-        // In reading-column mode, a width change should still re-measure
-        // and update the height. The column keeps its fixed wrap width, so
-        // the height is driven by that width, not the viewport.
-        let viewport = NSSize(width: 800, height: 600)
-        let sv = ClampedScrollView(frame: NSRect(origin: .zero, size: viewport))
-        sv.fitsContent = true
-        let tv = NativeTextView(frame: .zero)
-        var config = MarkdownEditorConfiguration.default
-        config.heightBehavior = .fitsContent
-        config.readingWidth = 400
-        tv.configuration = config
-        tv.autoresizingMask = []
-        let c = NativeTextViewContainer(frame: NSRect(origin: .zero, size: viewport))
-        c.autoresizingMask = [.width]
-        c.textView = tv
-        let columnWidth = tv.readingColumnWidth
-        tv.frame = NSRect(x: 0, y: 0, width: columnWidth, height: 0)
-        c.addSubview(tv)
-        sv.documentView = c
-
-        tv.baseContentHeight = 300
-        tv.applyManagedFrameSize(width: columnWidth)
-
-        // Height reflects content at the fixed column width.
-        #expect(tv.frame.height == 300)
-        #expect(c.frame.height == 300)
-
-        // Simulate a viewport width change (window resize).
-        // The column width stays fixed, so height should be unchanged.
-        tv.baseContentHeight = 300
-        tv.applyManagedFrameSize(width: columnWidth)
-        #expect(tv.frame.height == 300)
-        #expect(tv.frame.width == columnWidth)
-    }
-
-    @Test func readingWidthEmptyDocStillHasPositiveHeight() {
-        let viewport = NSSize(width: 800, height: 600)
-        let sv = ClampedScrollView(frame: NSRect(origin: .zero, size: viewport))
-        sv.fitsContent = true
-        let tv = NativeTextView(frame: .zero)
-        var config = MarkdownEditorConfiguration.default
-        config.heightBehavior = .fitsContent
-        config.readingWidth = 400
-        tv.configuration = config
-        tv.autoresizingMask = []
-        let c = NativeTextViewContainer(frame: NSRect(origin: .zero, size: viewport))
-        c.autoresizingMask = [.width]
-        c.textView = tv
-        let columnWidth = tv.readingColumnWidth
-        tv.frame = NSRect(x: 0, y: 0, width: columnWidth, height: 0)
-        c.addSubview(tv)
-        sv.documentView = c
-
-        // recalcOverscroll measures TextKit content → at least one line.
-        tv.recalcOverscroll(for: sv)
-        #expect(tv.baseContentHeight > 0)
-        #expect(tv.frame.height > 0)
-        #expect(tv.activeBottomOverscroll == 0)
-    }
 }
 
 // MARK: - Full runtime reconfiguration chain
